@@ -10,6 +10,15 @@ A personal video player for iPhone and iPad: **mpv** (via [MPVKit](https://githu
 
 ## Getting it on your phone
 
-Every push to `main` builds an unsigned `GlassPlayer.ipa` in GitHub Actions (Actions tab → latest run → *GlassPlayer-ipa*, or the **latest** release). Install it with [Sideloadly](https://sideloadly.io) using your Apple ID. With a free Apple ID the app must be re-signed every 7 days.
+Every push to `main` builds an unsigned `GlassPlayer.ipa` (Actions → latest run, or the **latest** release):
+https://github.com/mononymm/glassplayer-ios/releases/download/latest/GlassPlayer.ipa
+
+1. On Windows, install iTunes (the apple.com version, not the Microsoft Store one) and the latest [Sideloadly](https://sideloadly.io).
+2. Plug in the iPhone, unlock it and tap **Trust**.
+3. Drag `GlassPlayer.ipa` into Sideloadly, enter your Apple ID, click **Start**.
+4. On the iPhone: Settings → General → VPN & Device Management → your Apple ID → **Trust**.
+5. If asked, turn on Settings → Privacy & Security → **Developer Mode** and restart.
+
+With a free Apple ID the app has to be re-installed from Sideloadly every 7 days (your Plex sign-in and settings are kept).
 
 The Xcode project is generated from `project.yml` with XcodeGen.
