@@ -145,7 +145,7 @@ final class PlexStore: ObservableObject {
             async let cw = api.continueWatching(server)
             async let secs = api.sections(server)
             let (c, s) = try await (cw, secs)
-            continueWatching = c
+            continueWatching = await mergeStarted(into: c, sections: s, server: server)
             sections = s
             homeError = nil
             var rec: [String: [PlexItem]] = [:]
@@ -181,6 +181,35 @@ final class PlexStore: ObservableObject {
     func logoURL(for item: PlexItem) -> URL? {
         let show = shows[item.showKey] ?? item
         return imageURL(show.logoPath, width: 500, height: 200)
+    }
+
+    /// Adds things you started but didn't finish (even if rewound to the start) to Plex's Continue
+    /// Watching list. One entry per show, newest first; finished items stay out.
+    private func mergeStarted(into hub: [PlexItem], sections: [PlexSection], server: PlexServer) async -> [PlexItem] {
+        let cutoff = Int(Date().timeIntervalSince1970) - 60 * 60 * 24 * 60   // last 60 days
+        var extra: [PlexItem] = []
+        await withTaskGroup(of: [PlexItem].self) { group in
+            for sec in sections {
+                group.addTask { (try? await self.api.recentlyViewed(server, section: sec)) ?? [] }
+            }
+            for await list in group { extra += list }
+        }
+        // Plex's "up next" entries have never been played, so give each hub entry the time of the one
+        // before it; that keeps Plex's order while letting newer extras slot in between.
+        var when: [String: Int] = [:]
+        var byShow: [String: PlexItem] = [:]
+        var last = Int(Date().timeIntervalSince1970)
+        for it in hub {
+            last = it.lastViewedAt ?? last
+            if byShow[it.showKey] == nil { byShow[it.showKey] = it; when[it.showKey] = last }
+        }
+        for it in extra where (it.lastViewedAt ?? 0) > cutoff && !it.watched {
+            let t = it.lastViewedAt ?? 0
+            if let cur = when[it.showKey], cur >= t { continue }   // Plex's entry for this show is newer
+            byShow[it.showKey] = it
+            when[it.showKey] = t
+        }
+        return byShow.values.sorted { (when[$0.showKey] ?? 0) > (when[$1.showKey] ?? 0) }.prefix(30).map { $0 }
     }
 
     func imageURL(_ path: String?, width: Int, height: Int) -> URL? {

@@ -159,6 +159,16 @@ final class PlexAPI {
         return try await get(s, "/library/onDeck").items
     }
 
+    /// Recently played episodes/movies in a library, newest first (includes ones rewound to 0:00,
+    /// which Plex's own Continue Watching leaves out).
+    func recentlyViewed(_ s: PlexServer, section: PlexSection, limit: Int = 30) async throws -> [PlexItem] {
+        let type = section.type == "show" ? "4" : "1"
+        return try await get(s, "/library/sections/\(section.key)/all", query: [
+            "type": type, "sort": "lastViewedAt:desc",
+            "X-Plex-Container-Start": "0", "X-Plex-Container-Size": String(limit),
+        ]).items
+    }
+
     func recentlyAdded(_ s: PlexServer, section: String) async throws -> [PlexItem] {
         try await get(s, "/library/sections/\(section)/recentlyAdded",
                       query: ["X-Plex-Container-Start": "0", "X-Plex-Container-Size": "24"]).items
