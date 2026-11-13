@@ -20,18 +20,20 @@ struct PosterImage: View {
     var corner: CGFloat = 14
 
     var body: some View {
-        AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
-            switch phase {
-            case .success(let img):
-                img.resizable().scaledToFill()
-            default:
-                ZStack {
-                    Rectangle().fill(Theme.tint)
-                    Image(systemName: "film").font(.title2).foregroundStyle(.white.opacity(0.18))
+        // The tile's size comes from outside (frame / aspect ratio); the picture fills it and is cut to
+        // it. Clipping the picture itself would let a wide or tall image spill past the tile.
+        Rectangle().fill(Theme.tint)
+            .overlay {
+                AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
+                    switch phase {
+                    case .success(let img):
+                        img.resizable().scaledToFill()
+                    default:
+                        Image(systemName: "film").font(.title2).foregroundStyle(.white.opacity(0.18))
+                    }
                 }
             }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: corner, style: .continuous)
                 .strokeBorder(.white.opacity(0.08), lineWidth: 1)
