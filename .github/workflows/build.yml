@@ -3,6 +3,7 @@ name: Build IPA
 on:
   push:
     branches: [main]
+    paths-ignore: ['README.md']
   workflow_dispatch:
 
 permissions:
@@ -17,8 +18,12 @@ jobs:
     # GitHub reports a capacity shortage on Apple-silicon Mac runners; Intel Macs build the same IPA.
     runs-on: ${{ vars.MAC_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 60
+    env:
+      VERSION: 0.1.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Toolchain
         run: |
@@ -57,6 +62,7 @@ jobs:
             -skipPackagePluginValidation \
             -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            MARKETING_VERSION=${{ env.VERSION }} CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             build 2>&1 | tee build.log | grep -E "error:|warning: unable|BUILD (SUCCEEDED|FAILED)|\*\*" || true
           test -d build/Build/Products/Release-iphoneos/GlassPlayer.app
 
@@ -76,13 +82,31 @@ jobs:
           name: GlassPlayer-ipa
           path: GlassPlayer.ipa
 
-      - name: Publish "latest" release
+      - name: Release notes
+        run: |
+          prev=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+          {
+            echo "## Changes"
+            if [ -n "$prev" ]; then
+              git log --no-merges --pretty='- %s' "$prev"..HEAD
+            else
+              git log --no-merges --pretty='- %s' -n 15
+            fi
+            echo
+            echo "Install **GlassPlayer.ipa** with Sideloadly. Personal project, not made for public use; see the README."
+          } > notes.md
+          cat notes.md
+
+      - name: Remove the old rolling "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete latest --cleanup-tag -y || true
+
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Glass (latest build)
-          prerelease: true
+          tag_name: v${{ env.VERSION }}
+          name: Glass for iPhone ${{ env.VERSION }}
+          body_path: notes.md
           make_latest: true
           files: GlassPlayer.ipa
-          body: |
-            Unsigned build from ${{ github.sha }}. Install with Sideloadly (it signs with your Apple ID).

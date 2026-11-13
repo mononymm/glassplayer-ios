@@ -1,24 +1,31 @@
 # Glass for iPhone
 
-A personal video player for iPhone and iPad: **mpv** (via [MPVKit](https://github.com/mpvkit/MPVKit)) under a native SwiftUI interface with Liquid Glass, connected to Plex.
+> **Personal project — not made for public use.** It's built for one setup and one phone, it isn't on
+> the App Store, and it may not work for you. There's no support, no warranty, and things change often.
+> Use it at your own risk.
 
-- Plays anything mpv plays — TrueHD, DTS / DTS-HD, Atmos cores, PGS subtitles, ASS, HEVC / HDR10 — with direct play from Plex (no transcoding).
-- Sign in with Plex (plex.tv/link), Continue watching, libraries, shows and seasons, search.
-- Watch progress goes back to Plex as you watch; 90% counts as watched.
-- Gestures: double-tap left −10 s, right +30 s · hold right for 2×, hold left to rewind · tap to show controls.
-- Local files: Files app → On My iPhone → Glass, or "Open in Glass".
+A video player for iPhone and iPad: **mpv** (via [MPVKit](https://github.com/mpvkit/MPVKit)) under a
+native SwiftUI interface with Liquid Glass, connected to Plex.
 
-## Getting it on your phone
+- Plays what mpv plays (TrueHD, DTS, PGS and ASS subtitles, HEVC, HDR) by direct play from Plex
+- Sign in with a plex.tv/link code; home with backdrops and title logos, Continue watching, libraries, search
+- Watch progress goes back to Plex while you watch; 90% counts as watched
+- Gestures: double-tap left −10 s, right +30 s · hold right for 2×, hold left to rewind · tap for controls
 
-Every push to `main` builds an unsigned `GlassPlayer.ipa` (Actions → latest run, or the **latest** release):
-https://github.com/mononymm/glassplayer-ios/releases/download/latest/GlassPlayer.ipa
+## Quick start (if you want to try it anyway)
 
-1. On Windows, install iTunes (the apple.com version, not the Microsoft Store one) and the latest [Sideloadly](https://sideloadly.io).
-2. Plug in the iPhone, unlock it and tap **Trust**.
-3. Drag `GlassPlayer.ipa` into Sideloadly, enter your Apple ID, click **Start**.
-4. On the iPhone: Settings → General → VPN & Device Management → your Apple ID → **Trust**.
-5. If asked, turn on Settings → Privacy & Security → **Developer Mode** and restart.
+You need a Plex server, a Windows PC or Mac, and an Apple ID (a free one works).
 
-With a free Apple ID the app has to be re-installed from Sideloadly every 7 days (your Plex sign-in and settings are kept).
+1. Download `GlassPlayer.ipa` from the [latest release](../../releases/latest).
+2. Install it with [Sideloadly](https://sideloadly.io): plug in the iPhone, unlock it and tap **Trust**,
+   drag the `.ipa` into Sideloadly, enter your Apple ID and click **Start**.
+3. On the iPhone: Settings → General → VPN & Device Management → your Apple ID → **Trust**. If asked,
+   turn on Settings → Privacy & Security → **Developer Mode** and restart.
+4. Open Glass, tap **Sign in with Plex** and enter the code at plex.tv/link.
 
-The Xcode project is generated from `project.yml` with XcodeGen.
+With a free Apple ID the app must be reinstalled every 7 days (your sign-in is kept).
+
+**Privacy:** your Plex sign-in token is stored only in the iPhone's Keychain. The app talks only to
+plex.tv (sign-in and finding your server) and to your own Plex server.
+
+The Xcode project is generated from `project.yml` with XcodeGen and built by GitHub Actions.
