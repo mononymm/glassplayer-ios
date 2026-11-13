@@ -14,13 +14,17 @@ concurrency:
 
 jobs:
   build:
-    runs-on: xcode-27
+    # xcode-27 sat queued on this account; macos-26 ships Xcode 26 with the iOS 26 SDK (Liquid Glass).
+    runs-on: macos-26
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
       - name: Toolchain
         run: |
+          ls -d /Applications/Xcode*.app
+          XC=$(ls -d /Applications/Xcode_2[6-9]*.app | grep -v -i beta | sort -V | tail -1)
+          sudo xcode-select -s "$XC"
           sw_vers
           xcodebuild -version
 
