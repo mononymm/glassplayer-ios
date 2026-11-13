@@ -19,6 +19,7 @@ struct HomeView: View {
     @State private var localFiles: [URL] = []
     @State private var starting: String?
     @State private var editing = false
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -48,7 +49,6 @@ struct HomeView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
-            .searchable(text: $query, prompt: "Shows, movies, episodes")
             .onChange(of: query) { _, q in runSearch(q) }
             .toolbar {
                 // top left: jump to any library
@@ -62,6 +62,7 @@ struct HomeView: View {
                             }
                         }
                         Divider()
+                        Button { importing = true } label: { Label("Open a file", systemImage: "folder") }
                         Button { editing = true } label: { Label("Edit home", systemImage: "list.bullet.indent") }
                         Button { settings = true } label: { Label("Settings", systemImage: "gearshape") }
                     } label: {
@@ -70,11 +71,28 @@ struct HomeView: View {
                             .font(.subheadline.weight(.semibold))
                     }
                 }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { editing = true } label: { Image(systemName: "list.bullet.indent") }
-                        .accessibilityLabel("Edit home")
-                    Button { importing = true } label: { Image(systemName: "folder") }
-                    Button { settings = true } label: { Image(systemName: "gearshape") }
+                // top right: a compact search field
+                ToolbarItem(placement: .topBarTrailing) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.secondaryText)
+                        TextField("Search", text: $query)
+                            .textFieldStyle(.plain)
+                            .font(.subheadline)
+                            .focused($searchFocused)
+                            .submitLabel(.search)
+                            .autocorrectionDisabled()
+                        if !query.isEmpty {
+                            Button { query = ""; searchFocused = false } label: {
+                                Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.secondaryText)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(width: searchFocused || !query.isEmpty ? 220 : 150, height: 34)
+                    .animation(.spring(duration: 0.3), value: searchFocused)
                 }
             }
             .navigationDestination(for: Route.self) { route in
