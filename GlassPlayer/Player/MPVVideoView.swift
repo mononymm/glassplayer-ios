@@ -6,6 +6,8 @@ import UIKit
 final class MPVMetalView: UIView {
     override class var layerClass: AnyClass { MPVMetalLayer.self }
     var metalLayer: MPVMetalLayer { layer as! MPVMetalLayer }
+    /// Called when the render size changes (rotation, split view).
+    var onResize: ((CGSize) -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -25,6 +27,7 @@ final class MPVMetalView: UIView {
         let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
         if size.width > 1, size.height > 1, metalLayer.drawableSize != size {
             metalLayer.drawableSize = size
+            onResize?(size)
         }
     }
 }
@@ -41,6 +44,12 @@ final class MPVVideoController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        metalView.onResize = { [weak self] _ in
+            guard let self, self.started else { return }
+            self.player?.surfaceResized()
+        }
+        // Fallback in case the rotation to landscape never arrives (e.g. iPad in a fixed orientation).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.startIfNeeded(force: true) }
         NotificationCenter.default.addObserver(self, selector: #selector(didEnterBackground),
                                                name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(willEnterForeground),
@@ -49,11 +58,17 @@ final class MPVVideoController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        // Start mpv once the view has its real (landscape) size, so the first frames are placed right.
-        if !started, view.bounds.width > 1, view.bounds.height > 1 {
-            started = true
-            player?.start(layer: metalView.metalLayer)
-        }
+        startIfNeeded(force: false)
+    }
+
+    /// mpv's iOS renderer reads the surface size only when a video opens, so wait for the
+    /// rotation to landscape before starting it.
+    private func startIfNeeded(force: Bool) {
+        guard !started, view.bounds.width > 1, view.bounds.height > 1 else { return }
+        guard force || view.bounds.width >= view.bounds.height else { return }
+        started = true
+        view.layoutIfNeeded()
+        player?.start(layer: metalView.metalLayer)
     }
 
     @objc private func didEnterBackground() {

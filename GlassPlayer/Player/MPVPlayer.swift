@@ -230,6 +230,23 @@ final class MPVPlayer: ObservableObject {
 
     func setVideoEnabled(_ on: Bool) { setProperty("vid", on ? "auto" : "no") }
 
+    /// The MoltenVK renderer doesn't watch for size changes, so re-open the video output
+    /// (briefly switching the video track off and on) to make it pick up the new size.
+    private var resizeWork: DispatchWorkItem?
+    func surfaceResized() {
+        guard mpv != nil else { return }
+        resizeWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.mpv != nil, self.loaded else { return }
+            let vid = self.getString("vid") ?? "auto"
+            guard vid != "no" else { return }
+            self.setProperty("vid", "no")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self.setProperty("vid", vid) }
+        }
+        resizeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+    }
+
     // MARK: low level
 
     private func set(_ name: String, _ value: String) {
