@@ -65,12 +65,12 @@ struct PlayerScreen: View {
             )
             .ignoresSafeArea()
 
-            if player.buffering && !player.paused {
+            // loading: with the controls up, the play button shows it; otherwise a plain spinner
+            if player.buffering && !player.paused && !controlsVisible {
                 ProgressView()
                     .controlSize(.large)
                     .tint(.white)
-                    .padding(22)
-                    .glassEffect(.regular, in: .circle)
+                    .shadow(color: .black.opacity(0.6), radius: 6)
                     .allowsHitTesting(false)
             }
 
@@ -173,14 +173,9 @@ struct PlayerScreen: View {
                     if player.ended { player.seek(to: 0); player.setPaused(false) } else { player.togglePause() }
                     poke()
                 } label: {
-                    Image(systemName: player.ended ? "arrow.counterclockwise" : (player.paused ? "play.fill" : "pause.fill"))
-                        .font(.system(size: 25, weight: .semibold))
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 62, height: 62)
+                    PlayGlyph(paused: player.paused, ended: player.ended, loading: player.buffering && !player.paused)
                 }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.circle)
-                .tint(Theme.accent.opacity(0.85))
+                .buttonStyle(.plain)
 
                 Button { player.chapter(1); poke() } label: {
                     Image(systemName: "forward.end.fill").font(.system(size: 17, weight: .semibold))
@@ -739,5 +734,47 @@ enum Orientation {
             w.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
             w.rootViewController?.presentedViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
         }
+    }
+}
+
+
+/// Clear glass play button: see-through middle, a shiny glass rim, and a soft white symbol.
+struct PlayGlyph: View {
+    let paused: Bool
+    let ended: Bool
+    let loading: Bool
+
+    var body: some View {
+        ZStack {
+            // shiny rim: bright at the top-left, fading round to a faint edge
+            Circle()
+                .strokeBorder(
+                    AngularGradient(stops: [
+                        .init(color: .white.opacity(0.95), location: 0.00),
+                        .init(color: .white.opacity(0.25), location: 0.22),
+                        .init(color: .white.opacity(0.10), location: 0.45),
+                        .init(color: .white.opacity(0.45), location: 0.62),
+                        .init(color: .white.opacity(0.15), location: 0.80),
+                        .init(color: .white.opacity(0.95), location: 1.00),
+                    ], center: .center, angle: .degrees(-135)),
+                    lineWidth: 2
+                )
+            Circle()
+                .strokeBorder(.white.opacity(0.12), lineWidth: 6)
+                .blur(radius: 3)
+            if loading {
+                ProgressView().tint(.white).controlSize(.regular)
+            } else {
+                Image(systemName: ended ? "arrow.counterclockwise" : (paused ? "play.fill" : "pause.fill"))
+                    .font(.system(size: 25, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .offset(x: paused && !ended ? 2 : 0)      // the triangle's weight sits left of its box
+                    .contentTransition(.symbolEffect(.replace))
+                    .shadow(color: .black.opacity(0.35), radius: 4)
+            }
+        }
+        .frame(width: 64, height: 64)
+        .glassEffect(.clear.interactive(), in: .circle)
+        .contentShape(Circle())
     }
 }
