@@ -19,7 +19,6 @@ struct HomeView: View {
     @State private var localFiles: [URL] = []
     @State private var starting: String?
     @State private var editing = false
-    @FocusState private var searchFocused: Bool
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -72,28 +71,7 @@ struct HomeView: View {
                     }
                 }
                 // top right: a compact search field
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.secondaryText)
-                        TextField("Search", text: $query)
-                            .textFieldStyle(.plain)
-                            .font(.subheadline)
-                            .focused($searchFocused)
-                            .submitLabel(.search)
-                            .autocorrectionDisabled()
-                        if !query.isEmpty {
-                            Button { query = ""; searchFocused = false } label: {
-                                Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.secondaryText)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(width: searchFocused || !query.isEmpty ? 220 : 150, height: 34)
-                    .animation(.spring(duration: 0.3), value: searchFocused)
-                }
+                ToolbarItem(placement: .topBarTrailing) { CompactSearchField(text: $query) }
             }
             .navigationDestination(for: Route.self) { route in
                 switch route {
@@ -251,11 +229,10 @@ struct HomeView: View {
         let text = q.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { results = []; return }
         searchTask = Task {
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            try? await Task.sleep(nanoseconds: 150_000_000)
             if Task.isCancelled { return }
-            guard let s = plex.server else { return }
-            let r = (try? await plex.api.search(s, text)) ?? []
-            if !Task.isCancelled { results = r }
+            await plex.loadTitles()
+            if !Task.isCancelled { results = plex.search(text) }
         }
     }
 }
@@ -422,5 +399,39 @@ struct EditHomeView: View {
                 hidden = plex.hiddenSections
             }
         }
+    }
+}
+
+
+/// Small search field for the top-right of a screen; widens while you type.
+struct CompactSearchField: View {
+    @Binding var text: String
+    var prompt = "Search"
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.secondaryText)
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain)
+                .font(.subheadline)
+                .focused($focused)
+                .submitLabel(.search)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+            if !text.isEmpty {
+                Button { text = ""; focused = false } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(width: focused || !text.isEmpty ? 220 : 150, height: 34)
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true }
+        .animation(.spring(duration: 0.3), value: focused)
     }
 }

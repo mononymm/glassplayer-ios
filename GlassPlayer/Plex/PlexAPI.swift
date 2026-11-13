@@ -177,7 +177,7 @@ final class PlexAPI {
     /// Recently added, as whole shows / movies: new episodes and seasons are shown as their show.
     func recentlyAddedTitles(_ s: PlexServer, section: PlexSection, limit: Int = 24) async throws -> [PlexItem] {
         let recent = try await get(s, "/library/sections/\(section.key)/recentlyAdded",
-                                   query: ["X-Plex-Container-Start": "0", "X-Plex-Container-Size": "60"]).items
+                                   query: ["X-Plex-Container-Start": "0", "X-Plex-Container-Size": "400"]).items
         var keys: [String] = []
         for it in recent {
             let k: String
@@ -192,6 +192,13 @@ final class PlexAPI {
         if section.type == "movie" {
             let byKey = Dictionary(recent.map { ($0.ratingKey, $0) }, uniquingKeysWith: { a, _ in a })
             return keys.compactMap { byKey[$0] }
+        }
+        // a few busy shows can fill the look-back; top up with the newest shows in the library
+        if keys.count < limit {
+            let newest = (try? await get(s, "/library/sections/\(section.key)/all", query: [
+                "type": "2", "sort": "addedAt:desc", "X-Plex-Container-Start": "0", "X-Plex-Container-Size": String(limit),
+            ]).items) ?? []
+            for it in newest where !keys.contains(it.ratingKey) && keys.count < limit { keys.append(it.ratingKey) }
         }
         guard !keys.isEmpty else { return [] }
         // one request for all the shows, then back into "newest first" order

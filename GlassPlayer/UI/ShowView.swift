@@ -212,11 +212,18 @@ struct SectionView: View {
 
     @State private var items: [PlexItem] = []
     @State private var loading = true
+    @State private var query = ""
     @AppStorage("sectionSorts") private var sortsJSON = "{}"
 
     private var sort: LibrarySort {
         let d = (try? JSONDecoder().decode([String: String].self, from: Data(sortsJSON.utf8))) ?? [:]
         return LibrarySort(rawValue: d[section.key] ?? "") ?? .title
+    }
+
+    private var filtered: [PlexItem] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return items }
+        return items.filter { $0.title.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
     }
 
     private func setSort(_ s: LibrarySort) {
@@ -230,7 +237,7 @@ struct SectionView: View {
             Backdrop()
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: 14)], spacing: 18) {
-                    ForEach(sort.apply(items)) { item in
+                    ForEach(sort.apply(filtered)) { item in
                         if item.type == "show" {
                             NavigationLink(value: Route.show(item)) { PosterCard(item: item, width: nil) }
                                 .buttonStyle(.plain)
@@ -248,6 +255,9 @@ struct SectionView: View {
         }
         .navigationTitle(section.title)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                CompactSearchField(text: $query, prompt: "Search \(section.title)")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Picker("Sort by", selection: Binding(get: { sort }, set: { setSort($0) })) {

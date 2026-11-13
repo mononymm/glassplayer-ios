@@ -169,6 +169,40 @@ final class PlexStore: ObservableObject {
         }
     }
 
+    // MARK: search (local, over every library's titles)
+
+    @Published var titles: [String: [PlexItem]] = [:]     // section key → all shows / movies
+    private var titlesLoading = false
+
+    func loadTitles(force: Bool = false) async {
+        guard let server, !titlesLoading, force || titles.isEmpty else { return }
+        titlesLoading = true
+        defer { titlesLoading = false }
+        var out: [String: [PlexItem]] = [:]
+        await withTaskGroup(of: (String, [PlexItem]).self) { group in
+            for sec in sections {
+                group.addTask { (sec.key, (try? await self.api.all(server, section: sec.key)) ?? []) }
+            }
+            for await (k, list) in group { out[k] = list }
+        }
+        titles = out
+    }
+
+    /// Titles matching the text (ignoring case and accents); names that start with it come first.
+    func search(_ text: String, in sectionKey: String? = nil) -> [PlexItem] {
+        let q = text.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return [] }
+        let pool = sectionKey.map { titles[$0] ?? [] } ?? sections.flatMap { titles[$0.key] ?? [] }
+        let opts: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        return pool.filter { $0.title.range(of: q, options: opts) != nil }
+            .sorted { a, b in
+                let pa = a.title.range(of: q, options: opts.union(.anchored)) != nil
+                let pb = b.title.range(of: q, options: opts.union(.anchored)) != nil
+                if pa != pb { return pa }
+                return a.title.localizedStandardCompare(b.title) == .orderedAscending
+            }
+    }
+
     /// Full metadata (with title logo) for the show an item belongs to, fetched once.
     func show(for item: PlexItem) async -> PlexItem? {
         let key = item.showKey
