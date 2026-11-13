@@ -44,6 +44,9 @@ struct PlayerScreen: View {
     @State private var wasPausedBeforeRewind = false
     @State private var reportTask: Task<Void, Never>?
     @State private var queue: [PlexItem] = []
+    @State private var upNext: PlexItem?
+    @State private var upNextCount = 0
+    @State private var upNextTask: Task<Void, Never>?
     @State private var showPlaylist = false
     @State private var scrobbled = false
     @State private var speed: Double = 1
@@ -82,6 +85,11 @@ struct PlayerScreen: View {
                     .transition(.opacity)
             }
 
+            if let next = upNext {
+                upNextCard(next)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+
             if showPlaylist {
                 playlistPanel
                     .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -113,7 +121,12 @@ struct PlayerScreen: View {
             Task { await report(state: paused ? "paused" : "playing") }
         }
         .onChange(of: player.ended) { _, ended in
-            if ended { showControls(autoHide: false) }
+            if ended {
+                showControls(autoHide: false)
+                startUpNext()
+            } else {
+                cancelUpNext()
+            }
         }
     }
 
@@ -526,6 +539,7 @@ struct PlayerScreen: View {
     }
 
     private func close() {
+        upNextTask?.cancel()
         reportTask?.cancel()
         let pos = player.position, dur = player.duration
         let req = request
@@ -590,6 +604,83 @@ struct PlayerScreen: View {
         guard let item = request.plexItem, item.isEpisode, let server = request.server,
               let season = item.parentRatingKey else { queue = []; return }
         queue = (try? await plex.api.children(server, of: season)) ?? []
+    }
+
+    // MARK: - up next (auto-play the next episode)
+
+    /// The episode after this one: next in the season, or the first of the next season.
+    private func nextEpisode() async -> PlexItem? {
+        guard let item = request.plexItem, item.isEpisode, let server = request.server else { return nil }
+        if let i = queue.firstIndex(where: { $0.ratingKey == item.ratingKey }), i + 1 < queue.count { return queue[i + 1] }
+        guard let show = item.grandparentRatingKey, let season = item.parentRatingKey else { return nil }
+        let seasons = (try? await plex.api.children(server, of: show)) ?? []
+        guard let si = seasons.firstIndex(where: { $0.ratingKey == season }), si + 1 < seasons.count else { return nil }
+        return ((try? await plex.api.children(server, of: seasons[si + 1].ratingKey)) ?? []).first
+    }
+
+    private func startUpNext() {
+        upNextTask?.cancel()
+        upNextTask = Task { @MainActor in
+            guard let next = await nextEpisode(), player.ended else { return }
+            withAnimation(.spring(duration: 0.35)) { upNext = next; upNextCount = 5 }
+            while upNextCount > 0 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if Task.isCancelled || upNext == nil { return }
+                upNextCount -= 1
+            }
+            if !Task.isCancelled, upNext != nil { playUpNext() }
+        }
+    }
+
+    private func cancelUpNext() {
+        upNextTask?.cancel()
+        upNextTask = nil
+        withAnimation(.easeOut(duration: 0.2)) { upNext = nil }
+    }
+
+    private func playUpNext() {
+        guard let next = upNext else { return }
+        upNextTask?.cancel()
+        withAnimation(.easeOut(duration: 0.2)) { upNext = nil }
+        play(next)
+    }
+
+    private func upNextCard(_ next: PlexItem) -> some View {
+        HStack {
+            Spacer()
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Up next").font(.caption.weight(.bold)).foregroundStyle(Theme.accent)
+                HStack(spacing: 12) {
+                    PosterImage(url: plex.imageURL(next.thumb, width: 200, height: 112), corner: 10)
+                        .frame(width: 120, height: 68)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(next.episodeCode ?? "").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
+                        Text(next.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+                    }
+                }
+                HStack(spacing: 10) {
+                    Button { playUpNext() } label: {
+                        Label(upNextCount > 0 ? "Play in \(upNextCount)" : "Play now", systemImage: "play.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .monospacedDigit()
+                            .padding(.horizontal, 4)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .tint(Theme.accent)
+                    Button { cancelUpNext() } label: {
+                        Text("Cancel").font(.subheadline.weight(.semibold)).padding(.horizontal, 4)
+                    }
+                    .buttonStyle(.glass)
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(16)
+            .frame(width: 300, alignment: .leading)
+            .glassEffect(.regular, in: .rect(cornerRadius: 24))
+            .padding(.trailing, 20)
+            .padding(.bottom, 90)
+        }
+        .frame(maxHeight: .infinity, alignment: .bottom)
     }
 
     private func play(_ next: PlexItem) {
