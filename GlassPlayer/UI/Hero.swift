@@ -14,7 +14,7 @@ struct HeroCarousel: View {
         let item = items.isEmpty ? nil : items[index % items.count]
         ZStack(alignment: .bottomLeading) {
             if let item {
-                ArtBackdrop(url: plex.imageURL(item.backdropPath ?? item.stillPath, width: 1280, height: 720))
+                ArtBackdrop(url: plex.imageURL(item.backdropPath ?? item.stillPath, width: 960, height: 540))
                     .id(item.ratingKey)
                     .transition(.opacity)
                 VStack(alignment: .leading, spacing: 10) {
@@ -63,7 +63,8 @@ struct HeroCarousel: View {
                 .transition(.opacity.combined(with: .offset(y: 10)))
             }
         }
-        .frame(height: 470)
+        // fits the screen in landscape, roomy in portrait
+        .containerRelativeFrame(.vertical) { h, _ in min(480, max(300, h * 0.86)) }
         .frame(maxWidth: .infinity)
         .clipped()
         .contentShape(Rectangle())
@@ -93,8 +94,11 @@ struct ArtBackdrop: View {
     var body: some View {
         ZStack {
             Theme.background
-            AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.5))) { phase in
-                if case .success(let img) = phase { img.resizable().scaledToFill() } else { Color.clear }
+            // anchored to the top so faces and titles in the art aren't cropped off
+            Color.clear.overlay(alignment: .top) {
+                AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.5))) { phase in
+                    if case .success(let img) = phase { img.resizable().scaledToFill() } else { Color.clear }
+                }
             }
             LinearGradient(stops: [.init(color: .clear, location: 0.35), .init(color: Theme.background, location: 1)],
                            startPoint: .top, endPoint: .bottom)

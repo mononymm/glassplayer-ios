@@ -26,6 +26,32 @@ final class PlexStore: ObservableObject {
 
     private var pinTask: Task<Void, Never>?
 
+    // MARK: home row order (Edit home)
+
+    @Published var sectionOrder: [String] = UserDefaults.standard.stringArray(forKey: "homeOrder") ?? []
+    @Published var hiddenSections: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "homeHidden") ?? [])
+
+    /// Libraries in the user's order, hidden ones left out.
+    var orderedSections: [PlexSection] {
+        sortedSections.filter { !hiddenSections.contains($0.key) }
+    }
+
+    /// All libraries in the user's order (for the editor).
+    var sortedSections: [PlexSection] {
+        sections.sorted { a, b in
+            let ia = sectionOrder.firstIndex(of: a.key) ?? 1000 + (Int(a.key) ?? 0)
+            let ib = sectionOrder.firstIndex(of: b.key) ?? 1000 + (Int(b.key) ?? 0)
+            return ia < ib
+        }
+    }
+
+    func saveSectionOrder(_ keys: [String], hidden: Set<String>) {
+        sectionOrder = keys
+        hiddenSections = hidden
+        UserDefaults.standard.set(keys, forKey: "homeOrder")
+        UserDefaults.standard.set(Array(hidden), forKey: "homeHidden")
+    }
+
     var signedIn: Bool { token != nil }
 
     // MARK: sign-in

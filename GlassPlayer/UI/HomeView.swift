@@ -18,6 +18,7 @@ struct HomeView: View {
     @State private var settings = false
     @State private var localFiles: [URL] = []
     @State private var starting: String?
+    @State private var editing = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -51,6 +52,8 @@ struct HomeView: View {
             .onChange(of: query) { _, q in runSearch(q) }
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { editing = true } label: { Image(systemName: "list.bullet.indent") }
+                        .accessibilityLabel("Edit home")
                     Button { importing = true } label: { Image(systemName: "folder") }
                     Button { settings = true } label: { Image(systemName: "gearshape") }
                 }
@@ -67,6 +70,7 @@ struct HomeView: View {
             if plex.continueWatching.isEmpty { await plex.refreshHome() }
         }
         .sheet(isPresented: $settings) { SettingsView().environmentObject(plex) }
+        .sheet(isPresented: $editing) { EditHomeView().environmentObject(plex) }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.movie, .video, .audiovisualContent, .data]) { result in
             if case .success(let url) = result { play(LocalFiles.request(for: url)) }
         }
@@ -101,7 +105,7 @@ struct HomeView: View {
             }
         }
 
-        ForEach(plex.sections) { sec in
+        ForEach(plex.orderedSections) { sec in
             if let items = plex.recent[sec.key], !items.isEmpty {
                 NavigationLink(value: Route.section(sec)) {
                     RowHeader(title: sec.title, chevron: true)
@@ -175,7 +179,7 @@ struct HomeView: View {
     private var heroItems: [PlexItem] {
         let cw = Array(plex.continueWatching.prefix(6))
         if !cw.isEmpty { return cw }
-        return plex.sections.compactMap { plex.recent[$0.key]?.first }.prefix(6).map { $0 }
+        return plex.orderedSections.compactMap { plex.recent[$0.key]?.first }.prefix(6).map { $0 }
     }
 
     private func details(_ item: PlexItem) {
@@ -326,5 +330,60 @@ struct WideCard: View {
         .task { _ = await plex.show(for: item) }
         .foregroundStyle(.white)
         .contentShape(Rectangle())
+    }
+}
+
+/// Reorder (drag) and show/hide the library rows on the home page.
+struct EditHomeView: View {
+    @EnvironmentObject var plex: PlexStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var keys: [String] = []
+    @State private var hidden: Set<String> = []
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(keys, id: \.self) { key in
+                        if let sec = plex.sections.first(where: { $0.key == key }) {
+                            HStack(spacing: 12) {
+                                Image(systemName: sec.type == "movie" ? "film" : "tv")
+                                    .foregroundStyle(hidden.contains(key) ? Theme.secondaryText : Theme.accent)
+                                    .frame(width: 24)
+                                Text(sec.title)
+                                    .foregroundStyle(hidden.contains(key) ? Theme.secondaryText : .white)
+                                Spacer()
+                                Button {
+                                    if hidden.contains(key) { hidden.remove(key) } else { hidden.insert(key) }
+                                } label: {
+                                    Image(systemName: hidden.contains(key) ? "eye.slash" : "eye")
+                                        .foregroundStyle(hidden.contains(key) ? Theme.secondaryText : .white)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .onMove { from, to in keys.move(fromOffsets: from, toOffset: to) }
+                } footer: {
+                    Text("Drag to reorder. Tap the eye to hide a library from the home page.")
+                }
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("Edit home")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        plex.saveSectionOrder(keys, hidden: hidden)
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                keys = plex.sortedSections.map(\.key)
+                hidden = plex.hiddenSections
+            }
+        }
     }
 }

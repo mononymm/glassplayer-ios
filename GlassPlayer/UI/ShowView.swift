@@ -53,7 +53,7 @@ struct ShowView: View {
 
     private var header: some View {
         ZStack(alignment: .bottomLeading) {
-            ArtBackdrop(url: plex.imageURL(full.art ?? show.art, width: 1280, height: 720))
+            ArtBackdrop(url: plex.imageURL(full.art ?? show.art, width: 960, height: 540))
             VStack(alignment: .leading, spacing: 10) {
                 TitleLogo(item: full, maxWidth: 260, maxHeight: 100)
                 Text(metaLine).font(.subheadline.weight(.semibold))
@@ -80,7 +80,7 @@ struct ShowView: View {
             .padding(.horizontal)
             .padding(.bottom, 8)
         }
-        .frame(minHeight: 430)
+        .containerRelativeFrame(.vertical) { h, _ in min(440, max(300, h * 0.8)) }
     }
 
     private var full: PlexItem { plex.shows[show.ratingKey] ?? show }
