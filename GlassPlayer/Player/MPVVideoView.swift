@@ -1,21 +1,46 @@
 import SwiftUI
 import UIKit
 
-/// Hosts the Metal layer libmpv renders into.
-final class MPVVideoController: UIViewController {
-    let metalLayer = MPVMetalLayer()
-    weak var player: MPVPlayer?
+/// A view whose own backing layer is the Metal layer mpv renders into, so the video always
+/// covers exactly the view, through rotations and size changes.
+final class MPVMetalView: UIView {
+    override class var layerClass: AnyClass { MPVMetalLayer.self }
+    var metalLayer: MPVMetalLayer { layer as! MPVMetalLayer }
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .black
-        metalLayer.frame = view.bounds
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .black
         metalLayer.contentsScale = UIScreen.main.nativeScale
         metalLayer.framebufferOnly = true
         metalLayer.backgroundColor = UIColor.black.cgColor
-        view.layer.addSublayer(metalLayer)
-        player?.start(layer: metalLayer)
+        metalLayer.contentsGravity = .resizeAspect
+        metalLayer.needsDisplayOnBoundsChange = true
+    }
 
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let scale = metalLayer.contentsScale
+        let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        if size.width > 1, size.height > 1, metalLayer.drawableSize != size {
+            metalLayer.drawableSize = size
+        }
+    }
+}
+
+/// Hosts the view libmpv renders into.
+final class MPVVideoController: UIViewController {
+    weak var player: MPVPlayer?
+    private var started = false
+    private var metalView: MPVMetalView { view as! MPVMetalView }
+
+    override func loadView() {
+        view = MPVMetalView(frame: UIScreen.main.bounds)
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
         NotificationCenter.default.addObserver(self, selector: #selector(didEnterBackground),
                                                name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(willEnterForeground),
@@ -24,10 +49,11 @@ final class MPVVideoController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        metalLayer.frame = view.bounds
-        CATransaction.commit()
+        // Start mpv once the view has its real (landscape) size, so the first frames are placed right.
+        if !started, view.bounds.width > 1, view.bounds.height > 1 {
+            started = true
+            player?.start(layer: metalView.metalLayer)
+        }
     }
 
     @objc private func didEnterBackground() {
