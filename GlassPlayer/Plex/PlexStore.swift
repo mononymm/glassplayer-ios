@@ -150,7 +150,7 @@ final class PlexStore: ObservableObject {
             homeError = nil
             var rec: [String: [PlexItem]] = [:]
             for sec in s {
-                rec[sec.key] = (try? await api.recentlyAdded(server, section: sec.key)) ?? []
+                rec[sec.key] = (try? await api.recentlyAddedTitles(server, section: sec)) ?? []
             }
             recent = rec
         } catch {

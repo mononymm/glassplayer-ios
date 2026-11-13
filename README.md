@@ -28,4 +28,26 @@ With a free Apple ID the app must be reinstalled every 7 days (your sign-in is k
 **Privacy:** your Plex sign-in token is stored only in the iPhone's Keychain. The app talks only to
 plex.tv (sign-in and finding your server) and to your own Plex server.
 
-The Xcode project is generated from `project.yml` with XcodeGen and built by GitHub Actions.
+## Is it safe? Verify a download, or build it yourself
+
+All the code is in this repository, and every release is built by GitHub Actions straight from it
+(the build logs are public under **Actions**). Each release lists the SHA-256 fingerprint of the
+`.ipa` and carries a signed build certificate that ties it to the exact commit and build:
+
+```
+gh attestation verify GlassPlayer.ipa --repo mononymm/glassplayer-ios
+```
+
+(needs the [GitHub CLI](https://cli.github.com)). Sideloadly re-signs the app with your own Apple ID
+when it installs it.
+
+**Build it yourself** on a Mac with Xcode 26 or newer and [XcodeGen](https://github.com/yonaskolb/XcodeGen):
+
+```
+git clone https://github.com/mononymm/glassplayer-ios
+cd glassplayer-ios
+xcodegen generate
+open GlassPlayer.xcodeproj
+```
+
+Then pick your iPhone and press Run (Xcode signs it with your Apple ID).

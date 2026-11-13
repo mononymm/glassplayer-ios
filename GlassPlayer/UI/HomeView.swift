@@ -45,12 +45,31 @@ struct HomeView: View {
                     ProgressView().tint(.white).controlSize(.large)
                 }
             }
-            .navigationTitle("Glass")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
             .searchable(text: $query, prompt: "Shows, movies, episodes")
             .onChange(of: query) { _, q in runSearch(q) }
             .toolbar {
+                // top left: jump to any library
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Section("Libraries") {
+                            ForEach(plex.orderedSections) { sec in
+                                Button { path.append(Route.section(sec)) } label: {
+                                    Label(sec.title, systemImage: sec.type == "movie" ? "film" : "tv")
+                                }
+                            }
+                        }
+                        Divider()
+                        Button { editing = true } label: { Label("Edit home", systemImage: "list.bullet.indent") }
+                        Button { settings = true } label: { Label("Settings", systemImage: "gearshape") }
+                    } label: {
+                        Label("Libraries", systemImage: "line.3.horizontal")
+                            .labelStyle(.titleAndIcon)
+                            .font(.subheadline.weight(.semibold))
+                    }
+                }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { editing = true } label: { Image(systemName: "list.bullet.indent") }
                         .accessibilityLabel("Edit home")

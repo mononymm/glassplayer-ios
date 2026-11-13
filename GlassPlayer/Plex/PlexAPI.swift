@@ -174,6 +174,32 @@ final class PlexAPI {
                       query: ["X-Plex-Container-Start": "0", "X-Plex-Container-Size": "24"]).items
     }
 
+    /// Recently added, as whole shows / movies: new episodes and seasons are shown as their show.
+    func recentlyAddedTitles(_ s: PlexServer, section: PlexSection, limit: Int = 24) async throws -> [PlexItem] {
+        let recent = try await get(s, "/library/sections/\(section.key)/recentlyAdded",
+                                   query: ["X-Plex-Container-Start": "0", "X-Plex-Container-Size": "60"]).items
+        var keys: [String] = []
+        for it in recent {
+            let k: String
+            switch it.type {
+            case "episode": k = it.grandparentRatingKey ?? it.ratingKey
+            case "season": k = it.parentRatingKey ?? it.ratingKey
+            default: k = it.ratingKey
+            }
+            if !keys.contains(k) { keys.append(k) }
+            if keys.count >= limit { break }
+        }
+        if section.type == "movie" {
+            let byKey = Dictionary(recent.map { ($0.ratingKey, $0) }, uniquingKeysWith: { a, _ in a })
+            return keys.compactMap { byKey[$0] }
+        }
+        guard !keys.isEmpty else { return [] }
+        // one request for all the shows, then back into "newest first" order
+        let shows = try await get(s, "/library/metadata/" + keys.joined(separator: ",")).items
+        let byKey = Dictionary(shows.map { ($0.ratingKey, $0) }, uniquingKeysWith: { a, _ in a })
+        return keys.compactMap { byKey[$0] }
+    }
+
     func all(_ s: PlexServer, section: String) async throws -> [PlexItem] {
         try await get(s, "/library/sections/\(section)/all", query: ["sort": "titleSort"]).items
     }
