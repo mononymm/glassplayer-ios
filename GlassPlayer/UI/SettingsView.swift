@@ -36,8 +36,18 @@ struct SettingsView: View {
                         }
                     }
                     if let s = plex.server {
-                        LabeledContent("Address", value: s.uri)
-                            .font(.footnote)
+                        let c = ConnectionInfo(uri: s.uri)
+                        HStack {
+                            Text("Connection")
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(c.kind).foregroundStyle(.white)
+                                Text(c.host).font(.caption.monospacedDigit()).foregroundStyle(Theme.secondaryText)
+                            }
+                        }
+                        .contextMenu {
+                            Button { UIPasteboard.general.string = s.uri } label: { Label("Copy full address", systemImage: "doc.on.doc") }
+                        }
                     }
                 }
 
@@ -72,5 +82,28 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+}
+
+
+/// Turns "https://192-168-1-20.abc123.plex.direct:32400" into "Home network" + "192.168.1.20:32400".
+struct ConnectionInfo {
+    let kind: String
+    let host: String
+
+    init(uri: String) {
+        let comps = URLComponents(string: uri)
+        let rawHost = comps?.host ?? uri
+        let port = comps?.port.map { ":\($0)" } ?? ""
+        var ip = rawHost
+        if rawHost.hasSuffix(".plex.direct"), let first = rawHost.split(separator: ".").first {
+            ip = first.replacingOccurrences(of: "-", with: ".")
+        }
+        host = ip + port
+        let isPrivate = ip.hasPrefix("10.") || ip.hasPrefix("192.168.") || ip.hasPrefix("127.")
+            || (ip.hasPrefix("172.") && (Int(ip.split(separator: ".").dropFirst().first ?? "") ?? 0) / 16 == 1)
+        if rawHost.contains("relay") || uri.contains("relay") { kind = "Plex relay (slower)" }
+        else if isPrivate { kind = "Home network" }
+        else { kind = "Remote" }
     }
 }
