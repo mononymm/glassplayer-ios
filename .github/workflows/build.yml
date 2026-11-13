@@ -14,8 +14,8 @@ concurrency:
 
 jobs:
   build:
-    # xcode-27 sat queued on this account; macos-26 ships Xcode 26 with the iOS 26 SDK (Liquid Glass).
-    runs-on: macos-26
+    # GitHub reports a capacity shortage on Apple-silicon Mac runners; Intel Macs build the same IPA.
+    runs-on: ${{ vars.MAC_RUNNER || 'macos-15-intel' }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
