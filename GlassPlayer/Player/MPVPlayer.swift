@@ -447,6 +447,11 @@ final class MPVPlayer: ObservableObject {
             if gamma == "pq" { parts.append("HDR10") }
             else if gamma == "hlg" { parts.append("HLG") }
         }
+        // average bitrate of the whole file, like Plex shows it
+        if let size = getInt("file-size"), let dur = getDouble("duration"), size > 0, dur > 1 {
+            let mbps = Double(size) * 8 / dur / 1_000_000
+            parts.append(mbps >= 10 ? String(format: "%.0f Mbps", mbps) : String(format: "%.1f Mbps", mbps))
+        }
         if let a = getString("audio-codec-name") {
             var s = MPVTrack.prettyCodec(a)
             if let ch = getInt("audio-params/channel-count"), ch > 0 { s += " " + MPVTrack.prettyChannels(ch) }

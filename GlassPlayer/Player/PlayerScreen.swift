@@ -206,11 +206,18 @@ struct PlayerScreen: View {
                 }
             }
             Spacer(minLength: 12)
-            Text(infoLine)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.8))
-                .lineLimit(1)
-                .truncationMode(.head)
+            VStack(alignment: .trailing, spacing: 3) {
+                TimelineView(.periodic(from: .now, by: 15)) { ctx in
+                    Text(clockLine(ctx.date))
+                        .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+                Text(infoLine)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            }
         }
         .shadow(color: .black.opacity(0.85), radius: 2, y: 1)
         .shadow(color: .black.opacity(0.45), radius: 10)
@@ -219,9 +226,13 @@ struct PlayerScreen: View {
     /// One thin, clear glass strip: time, seek bar, remaining, speed, audio, subtitles, playlist.
     private var bottomBar: some View {
         HStack(spacing: 10) {
-            Text(formatTime(scrubbing ? scrubValue : player.position))
+            (Text(formatTime(scrubbing ? scrubValue : player.position))
                 .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                .frame(minWidth: 38, alignment: .leading)
+             + Text(" / " + formatTime(player.duration))
+                .font(.system(size: 12, weight: .medium).monospacedDigit())
+                .foregroundColor(.white.opacity(0.6)))
+                .lineLimit(1)
+                .fixedSize()
 
             SeekBar(
                 position: player.position,
@@ -233,11 +244,6 @@ struct PlayerScreen: View {
                 onCommit: { t in player.seek(to: t); poke() },
                 onScrubChange: { poke(autoHide: false) }
             )
-
-            Text("−" + formatTime(max(0, player.duration - (scrubbing ? scrubValue : player.position))))
-                .font(.system(size: 12, weight: .medium).monospacedDigit())
-                .foregroundStyle(.white.opacity(0.7))
-                .frame(minWidth: 44, alignment: .trailing)
 
             Rectangle().fill(.white.opacity(0.25)).frame(width: 0.5, height: 20)
 
@@ -258,6 +264,17 @@ struct PlayerScreen: View {
         .padding(.trailing, 8)
         .frame(height: 46)
         .glassEffect(.clear, in: .capsule)
+    }
+
+    /// "4:12 PM · ends 4:35 PM" (accounts for playback speed)
+    private func clockLine(_ now: Date) -> String {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        f.dateStyle = .none
+        var line = f.string(from: now)
+        let left = max(0, player.duration - player.position) / max(0.1, speed)
+        if player.duration > 0 { line += "  ·  ends " + f.string(from: now.addingTimeInterval(left)) }
+        return line
     }
 
     private var infoLine: String {
@@ -738,43 +755,80 @@ enum Orientation {
 }
 
 
-/// Clear glass play button: see-through middle, a shiny glass rim, and a soft white symbol.
+/// Clear glass play button: see-through middle, a shiny red glass rim with a red glow,
+/// and the play/pause symbol drawn as a red outline.
 struct PlayGlyph: View {
     let paused: Bool
     let ended: Bool
     let loading: Bool
 
+    private let red = Theme.accent
+    private let redLight = Color(red: 1, green: 0.70, blue: 0.69)
+
     var body: some View {
         ZStack {
-            // shiny rim: bright at the top-left, fading round to a faint edge
+            // red glow just outside the rim
+            Circle()
+                .stroke(red.opacity(0.55), lineWidth: 5)
+                .blur(radius: 5)
+            // shiny red rim: bright where the light catches it (top-left, bottom-right), softer between
             Circle()
                 .strokeBorder(
                     AngularGradient(stops: [
-                        .init(color: .white.opacity(0.95), location: 0.00),
-                        .init(color: .white.opacity(0.25), location: 0.22),
-                        .init(color: .white.opacity(0.10), location: 0.45),
-                        .init(color: .white.opacity(0.45), location: 0.62),
-                        .init(color: .white.opacity(0.15), location: 0.80),
-                        .init(color: .white.opacity(0.95), location: 1.00),
+                        .init(color: redLight, location: 0.00),
+                        .init(color: red.opacity(0.55), location: 0.18),
+                        .init(color: red.opacity(0.25), location: 0.38),
+                        .init(color: redLight.opacity(0.9), location: 0.50),
+                        .init(color: red.opacity(0.30), location: 0.68),
+                        .init(color: red.opacity(0.55), location: 0.85),
+                        .init(color: redLight, location: 1.00),
                     ], center: .center, angle: .degrees(-135)),
-                    lineWidth: 2
+                    lineWidth: 2.2
                 )
-            Circle()
-                .strokeBorder(.white.opacity(0.12), lineWidth: 6)
-                .blur(radius: 3)
-            if loading {
-                ProgressView().tint(.white).controlSize(.regular)
-            } else {
-                Image(systemName: ended ? "arrow.counterclockwise" : (paused ? "play.fill" : "pause.fill"))
-                    .font(.system(size: 25, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.88))
-                    .offset(x: paused && !ended ? 2 : 0)      // the triangle's weight sits left of its box
-                    .contentTransition(.symbolEffect(.replace))
-                    .shadow(color: .black.opacity(0.35), radius: 4)
-            }
+            symbol
         }
         .frame(width: 64, height: 64)
         .glassEffect(.clear.interactive(), in: .circle)
         .contentShape(Circle())
+    }
+
+    @ViewBuilder private var symbol: some View {
+        if loading {
+            ProgressView().tint(red)
+        } else if ended {
+            Image(systemName: "arrow.counterclockwise")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(red)
+                .shadow(color: red.opacity(0.6), radius: 4)
+        } else {
+            ZStack {
+                if paused {
+                    PlayOutline()
+                        .stroke(red, style: StrokeStyle(lineWidth: 2.6, lineJoin: .round))
+                        .frame(width: 20, height: 24)
+                        .offset(x: 2)                       // the triangle's weight sits left of its box
+                } else {
+                    HStack(spacing: 7) {
+                        RoundedRectangle(cornerRadius: 2).stroke(red, lineWidth: 2.4).frame(width: 6, height: 23)
+                        RoundedRectangle(cornerRadius: 2).stroke(red, lineWidth: 2.4).frame(width: 6, height: 23)
+                    }
+                }
+            }
+            .shadow(color: red.opacity(0.7), radius: 4)
+            .transition(.scale(scale: 0.7).combined(with: .opacity))
+            .id(paused)
+            .animation(.spring(duration: 0.28), value: paused)
+        }
+    }
+}
+
+struct PlayOutline: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.midY))
+        p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+        p.closeSubpath()
+        return p
     }
 }
