@@ -26,20 +26,27 @@ struct HomeView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 30) {
                         if !query.isEmpty {
-                            searchResults
+                            searchResults.padding(.top, 12)
                         } else {
+                            if !heroItems.isEmpty {
+                                HeroCarousel(items: heroItems, play: { start($0) }, details: { details($0) })
+                                    .padding(.bottom, -14)
+                            }
                             homeRows
                         }
                     }
-                    .padding(.vertical, 12)
+                    .padding(.bottom, 12)
                 }
+                .ignoresSafeArea(edges: query.isEmpty ? .top : [])
                 .refreshable { await plex.refreshHome() }
 
                 if plex.loading && plex.continueWatching.isEmpty && plex.sections.isEmpty {
                     ProgressView().tint(.white).controlSize(.large)
                 }
             }
-            .navigationTitle("Library")
+            .navigationTitle("Glass")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .searchable(text: $query, prompt: "Shows, movies, episodes")
             .onChange(of: query) { _, q in runSearch(q) }
             .toolbar {
@@ -165,6 +172,18 @@ struct HomeView: View {
 
     // MARK: actions
 
+    private var heroItems: [PlexItem] {
+        let cw = Array(plex.continueWatching.prefix(6))
+        if !cw.isEmpty { return cw }
+        return plex.sections.compactMap { plex.recent[$0.key]?.first }.prefix(6).map { $0 }
+    }
+
+    private func details(_ item: PlexItem) {
+        if item.isEpisode, let show = item.grandparentRatingKey { openShow(ratingKey: show, title: item.grandparentTitle ?? "") }
+        else if item.type == "show" { path.append(Route.show(item)) }
+        else { start(item) }
+    }
+
     private func open(_ item: PlexItem) {
         if item.type == "show" { path.append(Route.show(item)) }
         else if item.type == "season", let show = item.parentRatingKey { openShow(ratingKey: show, title: item.parentTitle ?? "") }
@@ -268,8 +287,24 @@ struct WideCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            PosterImage(url: plex.imageURL(item.art ?? item.thumb, width: 300, height: 170), corner: 16)
+            PosterImage(url: plex.imageURL(item.stillPath, width: 300, height: 170), corner: 16)
                 .frame(width: 260, height: 146)
+                .overlay(alignment: .bottomLeading) {
+                    LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .allowsHitTesting(false)
+                }
+                .overlay(alignment: .bottomLeading) {
+                    if let logo = plex.logoURL(for: item) {
+                        AsyncImage(url: logo) { ph in
+                            if case .success(let img) = ph { img.resizable().scaledToFit() } else { Color.clear }
+                        }
+                        .frame(maxWidth: 110, maxHeight: 38, alignment: .bottomLeading)
+                        .padding(.leading, 12)
+                        .padding(.bottom, 16)
+                        .shadow(color: .black.opacity(0.5), radius: 4)
+                    }
+                }
                 .overlay {
                     Image(systemName: "play.fill")
                         .font(.title3)
@@ -288,6 +323,7 @@ struct WideCard: View {
             }
         }
         .frame(width: 260)
+        .task { _ = await plex.show(for: item) }
         .foregroundStyle(.white)
         .contentShape(Rectangle())
     }

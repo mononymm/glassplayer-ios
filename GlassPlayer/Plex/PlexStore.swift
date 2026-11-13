@@ -21,6 +21,8 @@ final class PlexStore: ObservableObject {
     @Published var recent: [String: [PlexItem]] = [:]
     @Published var loading = false
     @Published var homeError: String?
+    /// Show/movie metadata fetched for logos and backdrops (keyed by ratingKey).
+    @Published var shows: [String: PlexItem] = [:]
 
     private var pinTask: Task<Void, Never>?
 
@@ -139,6 +141,20 @@ final class PlexStore: ObservableObject {
                 await refreshHome(retry: false)
             }
         }
+    }
+
+    /// Full metadata (with title logo) for the show an item belongs to, fetched once.
+    func show(for item: PlexItem) async -> PlexItem? {
+        let key = item.showKey
+        if let s = shows[key] { return s }
+        guard let server, let s = try? await api.metadata(server, key) else { return nil }
+        shows[key] = s
+        return s
+    }
+
+    func logoURL(for item: PlexItem) -> URL? {
+        let show = shows[item.showKey] ?? item
+        return imageURL(show.logoPath, width: 500, height: 200)
     }
 
     func imageURL(_ path: String?, width: Int, height: Int) -> URL? {

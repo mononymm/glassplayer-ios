@@ -9,6 +9,7 @@ struct ShowView: View {
     @State private var season: PlexItem?
     @State private var episodes: [PlexItem] = []
     @State private var starting: String?
+    @State private var expanded = false
 
     var body: some View {
         ZStack {
@@ -40,34 +41,57 @@ struct ShowView: View {
                 .padding(.bottom, 30)
             }
         }
-        .navigationTitle(show.title)
+        .ignoresSafeArea(edges: .top)
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .task {
+            _ = await plex.show(for: show)
+            await load()
+        }
     }
 
     private var header: some View {
-        HStack(alignment: .bottom, spacing: 16) {
-            PosterImage(url: plex.imageURL(show.thumb, width: 200, height: 300))
-                .aspectRatio(2 / 3, contentMode: .fit)
-                .frame(width: 120)
-            VStack(alignment: .leading, spacing: 8) {
-                Text(show.title).font(.title2.weight(.bold))
-                if let y = show.year { Text(String(y)).foregroundStyle(Theme.secondaryText) }
+        ZStack(alignment: .bottomLeading) {
+            ArtBackdrop(url: plex.imageURL(full.art ?? show.art, width: 1280, height: 720))
+            VStack(alignment: .leading, spacing: 10) {
+                TitleLogo(item: full, maxWidth: 260, maxHeight: 100)
+                Text(metaLine).font(.subheadline.weight(.semibold))
+                if let summary = full.summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.75))
+                        .lineLimit(expanded ? nil : 3)
+                        .onTapGesture { withAnimation { expanded.toggle() } }
+                }
                 if let next = upNext {
                     Button { start(next) } label: {
                         Label(next.progress != nil ? "Resume \(next.episodeCode ?? "")" : "Play \(next.episodeCode ?? "")",
                               systemImage: "play.fill")
                             .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 6)
                     }
                     .buttonStyle(.glassProminent)
                     .tint(Theme.accent)
+                    .padding(.top, 4)
                 }
             }
-            Spacer()
+            .foregroundStyle(.white)
+            .padding(.horizontal)
+            .padding(.bottom, 8)
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal)
-        .padding(.top, 8)
+        .frame(minHeight: 430)
+    }
+
+    private var full: PlexItem { plex.shows[show.ratingKey] ?? show }
+
+    private var metaLine: String {
+        var parts: [String] = []
+        if let y = full.year { parts.append(String(y)) }
+        if let r = full.contentRating { parts.append(r) }
+        if seasons.count > 0 { parts.append("\(seasons.count) season\(seasons.count == 1 ? "" : "s")") }
+        if let a = full.audienceRating, a > 0 { parts.append(String(format: "★ %.1f", a)) }
+        return parts.joined(separator: " · ")
     }
 
     private var seasonPicker: some View {
@@ -155,6 +179,32 @@ struct EpisodeRow: View {
     }
 }
 
+enum LibrarySort: String, CaseIterable, Identifiable {
+    case title, added, released, watched, unwatched
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .title: return "Title"
+        case .added: return "Recently added"
+        case .released: return "Release date"
+        case .watched: return "Recently watched"
+        case .unwatched: return "Unwatched first"
+        }
+    }
+    func apply(_ items: [PlexItem]) -> [PlexItem] {
+        switch self {
+        case .title: return items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        case .added: return items.sorted { ($0.addedAt ?? 0) > ($1.addedAt ?? 0) }
+        case .released: return items.sorted { ($0.originallyAvailableAt ?? String($0.year ?? 0)) > ($1.originallyAvailableAt ?? String($1.year ?? 0)) }
+        case .watched: return items.sorted { ($0.lastViewedAt ?? 0) > ($1.lastViewedAt ?? 0) }
+        case .unwatched: return items.sorted { a, b in
+            if a.watched != b.watched { return !a.watched }
+            return a.title.localizedStandardCompare(b.title) == .orderedAscending
+        }
+        }
+    }
+}
+
 struct SectionView: View {
     @EnvironmentObject var plex: PlexStore
     let section: PlexSection
@@ -162,13 +212,25 @@ struct SectionView: View {
 
     @State private var items: [PlexItem] = []
     @State private var loading = true
+    @AppStorage("sectionSorts") private var sortsJSON = "{}"
+
+    private var sort: LibrarySort {
+        let d = (try? JSONDecoder().decode([String: String].self, from: Data(sortsJSON.utf8))) ?? [:]
+        return LibrarySort(rawValue: d[section.key] ?? "") ?? .title
+    }
+
+    private func setSort(_ s: LibrarySort) {
+        var d = (try? JSONDecoder().decode([String: String].self, from: Data(sortsJSON.utf8))) ?? [:]
+        d[section.key] = s.rawValue
+        sortsJSON = String(data: (try? JSONEncoder().encode(d)) ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
+    }
 
     var body: some View {
         ZStack {
             Backdrop()
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: 14)], spacing: 18) {
-                    ForEach(items) { item in
+                    ForEach(sort.apply(items)) { item in
                         if item.type == "show" {
                             NavigationLink(value: Route.show(item)) { PosterCard(item: item, width: nil) }
                                 .buttonStyle(.plain)
@@ -185,6 +247,15 @@ struct SectionView: View {
             if loading { ProgressView().tint(.white).controlSize(.large) }
         }
         .navigationTitle(section.title)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("Sort by", selection: Binding(get: { sort }, set: { setSort($0) })) {
+                        ForEach(LibrarySort.allCases) { Text($0.label).tag($0) }
+                    }
+                } label: { Image(systemName: "arrow.up.arrow.down") }
+            }
+        }
         .task {
             guard let s = plex.server else { return }
             items = (try? await plex.api.all(s, section: section.key)) ?? []

@@ -60,6 +60,17 @@ struct PlexMedia: Decodable, Hashable {
     }
 }
 
+struct PlexImage: Decodable, Hashable {
+    let type: String
+    let url: String
+    enum CodingKeys: String, CodingKey { case type, url }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        type = c.flexString(.type) ?? ""
+        url = c.flexString(.url) ?? ""
+    }
+}
+
 struct PlexItem: Decodable, Identifiable, Hashable {
     let ratingKey: String
     let key: String?
@@ -83,6 +94,13 @@ struct PlexItem: Decodable, Identifiable, Hashable {
     let leafCount: Int?
     let viewedLeafCount: Int?
     let childCount: Int?
+    let grandparentArt: String?
+    let addedAt: Int?
+    let lastViewedAt: Int?
+    let originallyAvailableAt: String?
+    let contentRating: String?
+    let audienceRating: Double?
+    let images: [PlexImage]
     let media: [PlexMedia]
 
     var id: String { ratingKey }
@@ -91,6 +109,8 @@ struct PlexItem: Decodable, Identifiable, Hashable {
         case ratingKey, key, type, title, grandparentTitle, grandparentRatingKey, parentTitle, parentRatingKey
         case parentIndex, index, year, summary, thumb, art, parentThumb, grandparentThumb
         case viewOffset, duration, viewCount, leafCount, viewedLeafCount, childCount
+        case grandparentArt, addedAt, lastViewedAt, originallyAvailableAt, contentRating, audienceRating
+        case images = "Image"
         case media = "Media"
     }
 
@@ -118,6 +138,13 @@ struct PlexItem: Decodable, Identifiable, Hashable {
         leafCount = c.flexInt(.leafCount)
         viewedLeafCount = c.flexInt(.viewedLeafCount)
         childCount = c.flexInt(.childCount)
+        grandparentArt = c.flexString(.grandparentArt)
+        addedAt = c.flexInt(.addedAt)
+        lastViewedAt = c.flexInt(.lastViewedAt)
+        originallyAvailableAt = c.flexString(.originallyAvailableAt)
+        contentRating = c.flexString(.contentRating)
+        audienceRating = (try? c.decodeIfPresent(Double.self, forKey: .audienceRating)) ?? c.flexString(.audienceRating).flatMap(Double.init)
+        images = (try? c.decodeIfPresent([PlexImage].self, forKey: .images)) ?? []
         media = (try? c.decodeIfPresent([PlexMedia].self, forKey: .media)) ?? []
     }
 
@@ -161,6 +188,29 @@ struct PlexItem: Decodable, Identifiable, Hashable {
     }
 
     var partKey: String? { media.first?.parts.first?.key }
+
+    /// Title logo ("clear logo") when Plex has one.
+    var logoPath: String? { images.first(where: { $0.type == "clearLogo" })?.url }
+
+    /// Wide background art: the show's for episodes.
+    var backdropPath: String? { isEpisode ? (grandparentArt ?? art) : art }
+
+    /// Landscape picture for cards: the episode still, or the movie's background.
+    var stillPath: String? { isEpisode ? (thumb ?? grandparentArt) : (art ?? thumb) }
+
+    /// The show this item belongs to (itself for shows and movies).
+    var showKey: String { isEpisode ? (grandparentRatingKey ?? ratingKey) : type == "season" ? (parentRatingKey ?? ratingKey) : ratingKey }
+
+    var runtimeText: String? {
+        guard let duration, duration > 0 else { return nil }
+        let m = duration / 60000
+        return m >= 60 ? "\(m / 60)h \(m % 60)m" : "\(m)m"
+    }
+
+    var remainingText: String? {
+        guard let duration, let viewOffset, viewOffset > 0, duration > 0 else { return runtimeText }
+        return "\(max(1, (duration - viewOffset) / 60000)) min left"
+    }
 
     /// "2160p · HEVC · HDR · TrueHD 7.1" from Plex metadata.
     var mediaSummary: String {
