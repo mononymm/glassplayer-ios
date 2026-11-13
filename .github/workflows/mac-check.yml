@@ -1,0 +1,11 @@
+name: Mac runner check
+on: [push]
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26, xcode-27, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - run: sw_vers && xcodebuild -version
