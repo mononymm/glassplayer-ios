@@ -192,7 +192,16 @@ final class PlexStore: ObservableObject {
     func search(_ text: String, in sectionKey: String? = nil) -> [PlexItem] {
         let q = text.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return [] }
-        let pool = sectionKey.map { titles[$0] ?? [] } ?? sections.flatMap { titles[$0.key] ?? [] }
+        let raw = sectionKey.map { titles[$0] ?? [] } ?? sections.flatMap { titles[$0.key] ?? [] }
+        // one entry per title: the same show can come back twice (listed in two libraries, or
+        // returned twice by the server); keep the first of each id and of each name + year
+        var seenIDs = Set<String>(), seenNames = Set<String>()
+        let pool = raw.filter { it in
+            let name = it.title.lowercased() + "|" + String(it.year ?? 0) + "|" + (it.type ?? "")
+            guard !seenIDs.contains(it.ratingKey), !seenNames.contains(name) else { return false }
+            seenIDs.insert(it.ratingKey); seenNames.insert(name)
+            return true
+        }
         let opts: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
         return pool.filter { $0.title.range(of: q, options: opts) != nil }
             .sorted { a, b in
