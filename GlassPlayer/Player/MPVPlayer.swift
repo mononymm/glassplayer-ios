@@ -96,6 +96,8 @@ final class MPVPlayer: ObservableObject {
     @Published var sid: Int? = nil
     @Published var mediaInfo: String = ""
     @Published var errorText: String? = nil
+    @Published var chapterCount = 0
+    @Published var chapterTimes: [Double] = []
 
     private(set) var mpv: OpaquePointer?
     private let queue = DispatchQueue(label: "glass.mpv", qos: .userInitiated)
@@ -106,7 +108,7 @@ final class MPVPlayer: ObservableObject {
 
     // Observed property ids
     private enum Obs: UInt64 {
-        case timePos = 1, duration, pause, cache, trackCount, aid, sid, eof, idle
+        case timePos = 1, duration, pause, cache, trackCount, aid, sid, eof, idle, chapters
     }
 
     deinit {
@@ -164,6 +166,7 @@ final class MPVPlayer: ObservableObject {
         mpv_observe_property(handle, Obs.aid.rawValue, "aid", MPV_FORMAT_STRING)
         mpv_observe_property(handle, Obs.sid.rawValue, "sid", MPV_FORMAT_STRING)
         mpv_observe_property(handle, Obs.eof.rawValue, "eof-reached", MPV_FORMAT_FLAG)
+        mpv_observe_property(handle, Obs.chapters.rawValue, "chapter-list/count", MPV_FORMAT_INT64)
 
         mpv_set_wakeup_callback(handle, { ctx in
             guard let ctx else { return }
@@ -371,6 +374,13 @@ final class MPVPlayer: ObservableObject {
         case .sid:
             let v = str().flatMap { Int($0) }
             DispatchQueue.main.async { self.sid = v }
+        case .chapters:
+            let n = getInt("chapter-list/count") ?? 0
+            let times = (0..<n).compactMap { getDouble("chapter-list/\($0)/time") }
+            DispatchQueue.main.async {
+                self.chapterCount = n
+                self.chapterTimes = times
+            }
         case .idle:
             break
         }

@@ -43,7 +43,8 @@ struct PlayerScreen: View {
     @State private var rewindTask: Task<Void, Never>?
     @State private var wasPausedBeforeRewind = false
     @State private var reportTask: Task<Void, Never>?
-    @State private var nextItem: PlexItem?
+    @State private var queue: [PlexItem] = []
+    @State private var showPlaylist = false
     @State private var scrobbled = false
     @State private var speed: Double = 1
 
@@ -81,11 +82,17 @@ struct PlayerScreen: View {
                     .transition(.opacity)
             }
 
+            if showPlaylist {
+                playlistPanel
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+
             if let err = player.errorText {
                 errorCard(err)
             }
         }
         .animation(.easeInOut(duration: 0.22), value: controlsVisible)
+        .animation(.spring(duration: 0.35), value: showPlaylist)
         .statusBarHidden(!controlsVisible)
         .persistentSystemOverlays(.hidden)
         .preferredColorScheme(.dark)
@@ -95,7 +102,7 @@ struct PlayerScreen: View {
             player.load(request.url, start: request.start)
             scheduleHide()
             startReporting()
-            Task { await findNext() }
+            Task { await loadQueue() }
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
@@ -116,118 +123,115 @@ struct PlayerScreen: View {
         ZStack {
             // Soft scrims so white text reads over bright video.
             VStack {
-                LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 140)
+                LinearGradient(colors: [.black.opacity(0.35), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 110)
                 Spacer()
-                LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 200)
+                LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 190)
             }
             .ignoresSafeArea()
             .allowsHitTesting(false)
 
             VStack(spacing: 0) {
-                topBar
+                HStack {
+                    Button { close() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .bold))
+                            .frame(width: 40, height: 40)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    Spacer()
+                }
                 Spacer()
                 centerButtons
                 Spacer()
-                bottomPanel
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-        }
-    }
-
-    private var topBar: some View {
-        HStack(spacing: 12) {
-            Button { close() } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 17, weight: .semibold))
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(request.title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .lineLimit(1)
-                if let sub = request.subtitle, !sub.isEmpty {
-                    Text(sub)
-                        .font(.system(size: 13))
-                        .foregroundStyle(Theme.secondaryText)
-                        .lineLimit(1)
-                }
+                titleOverlay
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 10)
+                bottomBar
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 8)
-            .glassEffect(.regular, in: .capsule)
-
-            Spacer()
-
-            GlassEffectContainer(spacing: 10) {
-                HStack(spacing: 10) {
-                    speedMenu
-                    audioMenu
-                    subtitleMenu
-                }
-            }
+            .padding(.vertical, 10)
+            .foregroundStyle(.white)
         }
-        .foregroundStyle(.white)
     }
 
     private var centerButtons: some View {
-        GlassEffectContainer(spacing: 28) {
-            HStack(spacing: 28) {
-                Button { player.seek(by: -10); poke() } label: {
-                    Image(systemName: "gobackward.10").font(.system(size: 26, weight: .medium))
-                        .frame(width: 64, height: 64)
+        GlassEffectContainer(spacing: 30) {
+            HStack(spacing: 30) {
+                Button { player.chapter(-1); poke() } label: {
+                    Image(systemName: "backward.end.fill").font(.system(size: 17, weight: .semibold))
+                        .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
+                .opacity(hasChapters ? 1 : 0.35)
+                .disabled(!hasChapters)
 
                 Button {
                     if player.ended { player.seek(to: 0); player.setPaused(false) } else { player.togglePause() }
                     poke()
                 } label: {
                     Image(systemName: player.ended ? "arrow.counterclockwise" : (player.paused ? "play.fill" : "pause.fill"))
-                        .font(.system(size: 34, weight: .semibold))
+                        .font(.system(size: 25, weight: .semibold))
                         .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 84, height: 84)
+                        .frame(width: 62, height: 62)
                 }
                 .buttonStyle(.glassProminent)
                 .buttonBorderShape(.circle)
-                .tint(Theme.accent)
+                .tint(Theme.accent.opacity(0.85))
 
-                Button { player.seek(by: 30); poke() } label: {
-                    Image(systemName: "goforward.30").font(.system(size: 26, weight: .medium))
-                        .frame(width: 64, height: 64)
+                Button { player.chapter(1); poke() } label: {
+                    Image(systemName: "forward.end.fill").font(.system(size: 17, weight: .semibold))
+                        .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
+                .opacity(hasChapters ? 1 : 0.35)
+                .disabled(!hasChapters)
             }
         }
-        .foregroundStyle(.white)
     }
 
-    private var bottomPanel: some View {
-        VStack(spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(formatTime(scrubbing ? scrubValue : player.position))
-                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                Text("/ " + formatTime(player.duration))
-                    .font(.system(size: 13).monospacedDigit())
-                    .foregroundStyle(Theme.secondaryText)
-                Spacer(minLength: 12)
-                Text(infoLine)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Theme.secondaryText)
+    private var hasChapters: Bool { player.chapterCount > 1 }
+
+    /// Title sits on the video with a soft shadow instead of in a capsule.
+    private var titleOverlay: some View {
+        HStack(alignment: .lastTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(request.title)
+                    .font(.system(size: 17, weight: .semibold))
                     .lineLimit(1)
-                    .truncationMode(.head)
+                if let sub = request.subtitle, !sub.isEmpty {
+                    Text(sub)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .lineLimit(1)
+                }
             }
+            Spacer(minLength: 12)
+            Text(infoLine)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.8))
+                .lineLimit(1)
+                .truncationMode(.head)
+        }
+        .shadow(color: .black.opacity(0.85), radius: 2, y: 1)
+        .shadow(color: .black.opacity(0.45), radius: 10)
+    }
+
+    /// One thin, clear glass strip: time, seek bar, remaining, speed, audio, subtitles, playlist.
+    private var bottomBar: some View {
+        HStack(spacing: 10) {
+            Text(formatTime(scrubbing ? scrubValue : player.position))
+                .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                .frame(minWidth: 38, alignment: .leading)
 
             SeekBar(
                 position: player.position,
                 duration: player.duration,
+                chapters: player.chapterTimes,
                 watchedAt: request.plexItem != nil ? watchedAt : nil,
                 scrubbing: $scrubbing,
                 scrubValue: $scrubValue,
@@ -235,24 +239,30 @@ struct PlayerScreen: View {
                 onScrubChange: { poke(autoHide: false) }
             )
 
-            if nextItem != nil || player.ended {
-                HStack {
-                    Spacer()
-                    if let next = nextItem {
-                        Button { playNext(next) } label: {
-                            Label("Next: " + (next.episodeCode ?? next.title), systemImage: "forward.end.fill")
-                                .font(.system(size: 13, weight: .semibold))
-                                .padding(.horizontal, 6)
-                        }
-                        .buttonStyle(.glass)
-                    }
-                }
+            Text("−" + formatTime(max(0, player.duration - (scrubbing ? scrubValue : player.position))))
+                .font(.system(size: 12, weight: .medium).monospacedDigit())
+                .foregroundStyle(.white.opacity(0.7))
+                .frame(minWidth: 44, alignment: .trailing)
+
+            Rectangle().fill(.white.opacity(0.25)).frame(width: 0.5, height: 20)
+
+            speedMenu
+            audioMenu
+            subtitleMenu
+            Button { poke(autoHide: false); showPlaylist = true; controlsVisible = false } label: {
+                Image(systemName: "list.bullet")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .opacity(queue.isEmpty ? 0.35 : 1)
+            .disabled(queue.isEmpty)
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .glassEffect(.regular.tint(Theme.tint.opacity(0.35)), in: .rect(cornerRadius: 26))
+        .padding(.leading, 16)
+        .padding(.trailing, 8)
+        .frame(height: 46)
+        .glassEffect(.clear, in: .capsule)
     }
 
     private var infoLine: String {
@@ -268,12 +278,13 @@ struct PlayerScreen: View {
                 }
             }
         } label: {
-            Image(systemName: "gauge.with.dots.needle.67percent")
-                .font(.system(size: 16, weight: .semibold))
-                .frame(width: 44, height: 44)
+            Text(String(format: "%g×", speed))
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                .frame(width: 38, height: 34)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
     }
 
     private var audioMenu: some View {
@@ -282,13 +293,14 @@ struct PlayerScreen: View {
                 ForEach(player.audioTracks) { t in Text(t.label).tag(t.id) }
             }
         } label: {
-            Image(systemName: "waveform")
+            Image(systemName: "music.note")
                 .font(.system(size: 16, weight: .semibold))
-                .frame(width: 44, height: 44)
+                .frame(width: 34, height: 34)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
-        .disabled(player.audioTracks.count < 1)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .disabled(player.audioTracks.isEmpty)
     }
 
     private var subtitleMenu: some View {
@@ -300,10 +312,85 @@ struct PlayerScreen: View {
         } label: {
             Image(systemName: player.sid == nil ? "captions.bubble" : "captions.bubble.fill")
                 .font(.system(size: 16, weight: .semibold))
-                .frame(width: 44, height: 44)
+                .foregroundStyle(player.sid == nil ? Color.white : Theme.accent)
+                .frame(width: 34, height: 34)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+    }
+
+    /// Episodes of the current season, in a glass panel on the right.
+    private var playlistPanel: some View {
+        HStack {
+            Spacer()
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text(request.plexItem?.parentTitle ?? "Up next")
+                        .font(.system(size: 15, weight: .bold))
+                    Spacer()
+                    Button { showPlaylist = false; showControls() } label: {
+                        Image(systemName: "xmark").font(.system(size: 13, weight: .bold))
+                            .frame(width: 30, height: 30)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 8)
+
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 6) {
+                            ForEach(queue) { ep in
+                                let current = ep.ratingKey == request.plexItem?.ratingKey
+                                Button { if !current { play(ep) } } label: {
+                                    HStack(spacing: 10) {
+                                        PosterImage(url: plex.imageURL(ep.thumb, width: 120, height: 68), corner: 8)
+                                            .frame(width: 86, height: 48)
+                                            .overlay(alignment: .bottom) {
+                                                if let p = ep.progress, !current { ProgressLine(value: p).padding(4) }
+                                            }
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(ep.episodeCode ?? "")
+                                                .font(.system(size: 11, weight: .bold))
+                                                .foregroundStyle(current ? Theme.accent : .white.opacity(0.6))
+                                            Text(ep.title)
+                                                .font(.system(size: 13, weight: current ? .bold : .medium))
+                                                .lineLimit(2)
+                                                .multilineTextAlignment(.leading)
+                                        }
+                                        Spacer(minLength: 0)
+                                        if current {
+                                            Image(systemName: "waveform").foregroundStyle(Theme.accent)
+                                                .symbolEffect(.variableColor.iterative, isActive: !player.paused)
+                                        } else if ep.watched {
+                                            Image(systemName: "checkmark").font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.5))
+                                        }
+                                    }
+                                    .padding(8)
+                                    .background(current ? Color.white.opacity(0.12) : .clear, in: .rect(cornerRadius: 14))
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .id(ep.ratingKey)
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 12)
+                    }
+                    .onAppear {
+                        if let k = request.plexItem?.ratingKey { proxy.scrollTo(k, anchor: .center) }
+                    }
+                }
+            }
+            .frame(width: 330)
+            .foregroundStyle(.white)
+            .glassEffect(.regular, in: .rect(cornerRadius: 28))
+            .padding(.vertical, 12)
+            .padding(.trailing, 12)
+        }
     }
 
     // MARK: - gesture feedback
@@ -484,26 +571,16 @@ struct PlayerScreen: View {
         await plex.refreshHome()
     }
 
-    // MARK: - next episode
+    // MARK: - playlist
 
-    private func findNext() async {
+    /// The current season's episodes (or nothing for movies and local files).
+    private func loadQueue() async {
         guard let item = request.plexItem, item.isEpisode, let server = request.server,
-              let season = item.parentRatingKey else { return }
-        let eps = (try? await plex.api.children(server, of: season)) ?? []
-        if let i = eps.firstIndex(where: { $0.ratingKey == item.ratingKey }), i + 1 < eps.count {
-            nextItem = eps[i + 1]
-            return
-        }
-        // Last of the season: first episode of the next season.
-        guard let show = item.grandparentRatingKey else { return }
-        let seasons = (try? await plex.api.children(server, of: show)) ?? []
-        if let si = seasons.firstIndex(where: { $0.ratingKey == season }), si + 1 < seasons.count {
-            let nextEps = (try? await plex.api.children(server, of: seasons[si + 1].ratingKey)) ?? []
-            nextItem = nextEps.first
-        }
+              let season = item.parentRatingKey else { queue = []; return }
+        queue = (try? await plex.api.children(server, of: season)) ?? []
     }
 
-    private func playNext(_ next: PlexItem) {
+    private func play(_ next: PlexItem) {
         let pos = player.position, dur = player.duration
         let old = request
         Task { await finalReport(position: pos, duration: dur, request: old) }
@@ -512,73 +589,130 @@ struct PlayerScreen: View {
                   let full = try? await plex.api.metadata(server, next.ratingKey) ?? next,
                   let part = full.partKey,
                   let url = plex.api.streamURL(server, partKey: part) else { return }
+            var start = 0.0
+            if let off = full.viewOffset, off > 0, !(full.watched) { start = Double(off) / 1000 }
+            let seasonChanged = full.parentRatingKey != request.plexItem?.parentRatingKey
             request = PlayRequest(url: url, title: full.displayTitle, subtitle: full.displaySubtitle,
-                                  start: 0, plexItem: full, server: server)
+                                  start: start, plexItem: full, server: server)
             scrobbled = false
-            nextItem = nil
-            player.load(url, start: 0)
-            await findNext()
+            showPlaylist = false
+            player.load(url, start: start)
+            showControls()
+            if seasonChanged { await loadQueue() }
         }
     }
 }
 
-/// Slim seek bar with glow, a draggable thumb and the 90% "counts as watched" marker.
+/// Slim seek bar. Touch jumps to the finger; dragging is relative, and sliding the finger
+/// up away from the bar slows scrubbing down (half, quarter, fine) like Apple's players.
 struct SeekBar: View {
     let position: Double
     let duration: Double
+    var chapters: [Double] = []
     let watchedAt: Double?
     @Binding var scrubbing: Bool
     @Binding var scrubValue: Double
     var onCommit: (Double) -> Void
     var onScrubChange: () -> Void
 
+    @State private var lastX: CGFloat = 0
+    @State private var rate: Double = 1
+    private let haptic = UISelectionFeedbackGenerator()
+
+    private static func rate(forLift lift: CGFloat) -> Double {
+        if lift < 50 { return 1 }
+        if lift < 110 { return 0.5 }
+        if lift < 170 { return 0.25 }
+        return 0.1
+    }
+
+    private var rateLabel: String? {
+        switch rate {
+        case 0.5: return "Half-speed scrubbing"
+        case 0.25: return "Quarter-speed scrubbing"
+        case 0.1: return "Fine scrubbing"
+        default: return nil
+        }
+    }
+
     var body: some View {
         GeometryReader { g in
-            let w = g.size.width
+            let w = max(1, g.size.width)
             let frac = duration > 0 ? min(1, max(0, (scrubbing ? scrubValue : position) / duration)) : 0
+            let barH: CGFloat = scrubbing ? 7 : 4
             ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.22)).frame(height: scrubbing ? 8 : 5)
+                Capsule().fill(.white.opacity(0.25)).frame(height: barH)
                 Capsule().fill(Theme.accent)
-                    .frame(width: max(0, w * frac), height: scrubbing ? 8 : 5)
-                    .shadow(color: Theme.accent.opacity(0.7), radius: 6)
+                    .frame(width: max(0, w * frac), height: barH)
+                    .shadow(color: Theme.accent.opacity(0.6), radius: 5)
+                ForEach(Array(chapters.enumerated()), id: \.offset) { pair in
+                    let t = pair.element
+                    if duration > 0, t > 0, t < duration {
+                        Rectangle().fill(.black.opacity(0.45))
+                            .frame(width: 1.5, height: barH)
+                            .offset(x: w * t / duration - 0.75)
+                    }
+                }
                 if let watchedAt, duration > 0 {
                     Triangle()
-                        .fill(.white.opacity(0.75))
-                        .frame(width: 8, height: 6)
-                        .offset(x: w * watchedAt - 4, y: -10)
+                        .fill(.white.opacity(0.7))
+                        .frame(width: 7, height: 5)
+                        .offset(x: w * watchedAt - 3.5, y: -8)
                 }
                 Circle()
                     .fill(.white)
-                    .frame(width: scrubbing ? 22 : 14, height: scrubbing ? 22 : 14)
-                    .shadow(color: .black.opacity(0.35), radius: 4)
-                    .offset(x: w * frac - (scrubbing ? 11 : 7))
+                    .frame(width: scrubbing ? 18 : 11, height: scrubbing ? 18 : 11)
+                    .shadow(color: .black.opacity(0.35), radius: 3)
+                    .offset(x: w * frac - (scrubbing ? 9 : 5.5))
                 if scrubbing {
-                    Text(formatTime(scrubValue))
-                        .font(.system(size: 13, weight: .bold).monospacedDigit())
-                        .padding(.horizontal, 10).padding(.vertical, 5)
-                        .glassEffect(.regular, in: .capsule)
-                        .offset(x: min(max(0, w * frac - 30), w - 64), y: -34)
+                    VStack(spacing: 3) {
+                        Text(formatTime(scrubValue))
+                            .font(.system(size: 13, weight: .bold).monospacedDigit())
+                        if let rateLabel {
+                            Text(rateLabel).font(.system(size: 10, weight: .semibold)).opacity(0.85)
+                        }
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 12))
+                    .fixedSize()
+                    .offset(x: min(max(0, w * frac - 40), w - 80), y: rateLabel == nil ? -34 : -40)
+                    .allowsHitTesting(false)
                 }
             }
-            .frame(height: 30)
+            .frame(height: 34)
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 0, coordinateSpace: .local)
                     .onChanged { v in
                         guard duration > 0 else { return }
-                        if !scrubbing { scrubbing = true }
-                        scrubValue = min(duration, max(0, Double(v.location.x / w) * duration))
+                        if !scrubbing {
+                            // First touch: jump to the finger.
+                            scrubbing = true
+                            rate = 1
+                            lastX = v.location.x
+                            scrubValue = min(duration, max(0, Double(v.location.x / w) * duration))
+                            haptic.prepare()
+                        } else {
+                            let lift = max(0, 17 - v.location.y)   // points above the bar's middle
+                            let r = SeekBar.rate(forLift: lift)
+                            if r != rate { rate = r; haptic.selectionChanged() }
+                            let dx = v.location.x - lastX
+                            lastX = v.location.x
+                            scrubValue = min(duration, max(0, scrubValue + Double(dx / w) * duration * rate))
+                        }
                         onScrubChange()
                     }
                     .onEnded { _ in
                         guard duration > 0 else { return }
                         onCommit(scrubValue)
                         scrubbing = false
+                        rate = 1
                     }
             )
             .animation(.easeOut(duration: 0.15), value: scrubbing)
+            .animation(.easeOut(duration: 0.15), value: rate)
         }
-        .frame(height: 30)
+        .frame(height: 34)
     }
 }
 
