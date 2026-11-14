@@ -205,6 +205,8 @@ final class MPVPlayer: ObservableObject {
             self.position = start
         }
         set("start", start > 1 ? String(format: "%.3f", start) : "none")
+        // keep-open pauses at the end of a file; a newly loaded file should always play.
+        setProperty("pause", "no")
         let target = url.isFileURL ? url.path : url.absoluteString
         command(["loadfile", target, "replace"])
     }

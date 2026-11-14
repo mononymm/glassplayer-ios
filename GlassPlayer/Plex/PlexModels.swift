@@ -71,6 +71,19 @@ struct PlexImage: Decodable, Hashable {
     }
 }
 
+struct PlexMarker: Decodable, Hashable {
+    let type: String
+    let start: Int          // ms
+    let end: Int            // ms
+    enum CodingKeys: String, CodingKey { case type, startTimeOffset, endTimeOffset }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        type = c.flexString(.type) ?? ""
+        start = c.flexInt(.startTimeOffset) ?? 0
+        end = c.flexInt(.endTimeOffset) ?? 0
+    }
+}
+
 struct PlexItem: Decodable, Identifiable, Hashable {
     let ratingKey: String
     let key: String?
@@ -102,6 +115,7 @@ struct PlexItem: Decodable, Identifiable, Hashable {
     let audienceRating: Double?
     let images: [PlexImage]
     let media: [PlexMedia]
+    let markers: [PlexMarker]
 
     var id: String { ratingKey }
 
@@ -112,6 +126,7 @@ struct PlexItem: Decodable, Identifiable, Hashable {
         case grandparentArt, addedAt, lastViewedAt, originallyAvailableAt, contentRating, audienceRating
         case images = "Image"
         case media = "Media"
+        case markers = "Marker"
     }
 
     init(from d: Decoder) throws {
@@ -146,6 +161,7 @@ struct PlexItem: Decodable, Identifiable, Hashable {
         audienceRating = (try? c.decodeIfPresent(Double.self, forKey: .audienceRating)) ?? c.flexString(.audienceRating).flatMap(Double.init)
         images = (try? c.decodeIfPresent([PlexImage].self, forKey: .images)) ?? []
         media = (try? c.decodeIfPresent([PlexMedia].self, forKey: .media)) ?? []
+        markers = (try? c.decodeIfPresent([PlexMarker].self, forKey: .markers)) ?? []
     }
 
     var isEpisode: Bool { type == "episode" }

@@ -216,7 +216,7 @@ final class PlexAPI {
     }
 
     func metadata(_ s: PlexServer, _ ratingKey: String) async throws -> PlexItem? {
-        try await get(s, "/library/metadata/\(ratingKey)").items.first
+        try await get(s, "/library/metadata/\(ratingKey)", query: ["includeMarkers": "1"]).items.first
     }
 
     func search(_ s: PlexServer, _ text: String) async throws -> [PlexItem] {

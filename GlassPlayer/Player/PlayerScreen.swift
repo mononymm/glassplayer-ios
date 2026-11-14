@@ -46,7 +46,11 @@ struct PlayerScreen: View {
     @State private var queue: [PlexItem] = []
     @State private var upNext: PlexItem?
     @State private var upNextCount = 0
-    @State private var upNextTask: Task<Void, Never>?
+    /// Next episode, looked up when a file starts so it's ready before the end.
+    @State private var nextItem: PlexItem?
+    /// Where the "Up next" card appears: Plex's credits marker, or the last 20 s.
+    @State private var upNextAt: Double?
+    @State private var upNextDismissed = false
     @State private var showPlaylist = false
     @State private var scrobbled = false
     @State private var speed: Double = 1
@@ -110,7 +114,7 @@ struct PlayerScreen: View {
             player.load(request.url, start: request.start)
             scheduleHide()
             startReporting()
-            Task { await loadQueue() }
+            Task { await loadQueue(); await prepareUpNext() }
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
@@ -120,12 +124,15 @@ struct PlayerScreen: View {
             if paused { showControls(autoHide: false) } else { scheduleHide() }
             Task { await report(state: paused ? "paused" : "playing") }
         }
+        .onChange(of: player.position) { _, _ in updateUpNext() }
         .onChange(of: player.ended) { _, ended in
-            if ended {
-                showControls(autoHide: false)
-                startUpNext()
+            guard ended else { return }
+            if let next = nextItem, !upNextDismissed {
+                // The episode just finished: go straight on.
+                withAnimation(.easeOut(duration: 0.2)) { upNext = nil }
+                play(next)
             } else {
-                cancelUpNext()
+                showControls(autoHide: false)
             }
         }
     }
@@ -539,7 +546,6 @@ struct PlayerScreen: View {
     }
 
     private func close() {
-        upNextTask?.cancel()
         reportTask?.cancel()
         let pos = player.position, dur = player.duration
         let req = request
@@ -618,29 +624,49 @@ struct PlayerScreen: View {
         return ((try? await plex.api.children(server, of: seasons[si + 1].ratingKey)) ?? []).first
     }
 
-    private func startUpNext() {
-        upNextTask?.cancel()
-        upNextTask = Task { @MainActor in
-            guard let next = await nextEpisode(), player.ended else { return }
-            withAnimation(.spring(duration: 0.35)) { upNext = next; upNextCount = 5 }
-            while upNextCount > 0 {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                if Task.isCancelled || upNext == nil { return }
-                upNextCount -= 1
-            }
-            if !Task.isCancelled, upNext != nil { playUpNext() }
+    /// Finds the next episode and where its card should appear (credits, or the last 20 s).
+    private func prepareUpNext() async {
+        nextItem = nil
+        upNextAt = nil
+        upNextDismissed = false
+        guard let item = request.plexItem, item.isEpisode else { return }
+        let next = await nextEpisode()
+        var credits: Double?
+        if let server = request.server, let full = try? await plex.api.metadata(server, item.ratingKey) {
+            let durMs = Double(full.duration ?? item.duration ?? 0)
+            credits = full.markers
+                .filter { $0.type == "credits" && Double($0.start) > durMs * 0.5 }
+                .map { Double($0.start) / 1000 }
+                .min()
+        }
+        guard request.plexItem?.ratingKey == item.ratingKey else { return }
+        nextItem = next
+        upNextAt = credits
+    }
+
+    /// Shows the card while the episode wraps up; hides it if you seek back.
+    private func updateUpNext() {
+        guard let next = nextItem, !upNextDismissed, player.duration > 30, !player.ended else {
+            if upNext != nil, nextItem == nil || upNextDismissed { withAnimation(.easeOut(duration: 0.2)) { upNext = nil } }
+            return
+        }
+        let start = min(upNextAt ?? .infinity, player.duration - 20)
+        let left = player.duration - player.position
+        if player.position >= start && left > 0 {
+            upNextCount = max(1, Int((left / max(0.1, speed)).rounded(.up)))
+            if upNext == nil { withAnimation(.spring(duration: 0.35)) { upNext = next } }
+        } else if upNext != nil {
+            withAnimation(.easeOut(duration: 0.2)) { upNext = nil }
         }
     }
 
     private func cancelUpNext() {
-        upNextTask?.cancel()
-        upNextTask = nil
+        upNextDismissed = true
         withAnimation(.easeOut(duration: 0.2)) { upNext = nil }
     }
 
     private func playUpNext() {
-        guard let next = upNext else { return }
-        upNextTask?.cancel()
+        guard let next = upNext ?? nextItem else { return }
         withAnimation(.easeOut(duration: 0.2)) { upNext = nil }
         play(next)
     }
@@ -649,7 +675,7 @@ struct PlayerScreen: View {
         HStack {
             Spacer()
             VStack(alignment: .leading, spacing: 10) {
-                Text("Up next").font(.caption.weight(.bold)).foregroundStyle(Theme.accent)
+                Text("Up next in \(upNextCount)").font(.caption.weight(.bold)).foregroundStyle(Theme.accent).monospacedDigit()
                 HStack(spacing: 12) {
                     PosterImage(url: plex.imageURL(next.thumb, width: 200, height: 112), corner: 10)
                         .frame(width: 120, height: 68)
@@ -660,7 +686,7 @@ struct PlayerScreen: View {
                 }
                 HStack(spacing: 10) {
                     Button { playUpNext() } label: {
-                        Label(upNextCount > 0 ? "Play in \(upNextCount)" : "Play now", systemImage: "play.fill")
+                        Label("Play now", systemImage: "play.fill")
                             .font(.subheadline.weight(.semibold))
                             .monospacedDigit()
                             .padding(.horizontal, 4)
@@ -699,9 +725,12 @@ struct PlayerScreen: View {
                                   start: start, plexItem: full, server: server)
             scrobbled = false
             showPlaylist = false
+            upNext = nil
+            nextItem = nil
             player.load(url, start: start)
             showControls()
             if seasonChanged { await loadQueue() }
+            await prepareUpNext()
         }
     }
 }
