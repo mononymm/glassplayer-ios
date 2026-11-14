@@ -4,6 +4,8 @@ struct SettingsView: View {
     @EnvironmentObject var plex: PlexStore
     @Environment(\.dismiss) private var dismiss
     @AppStorage("hdr") private var hdr = true
+    @AppStorage("upNextSeconds") private var upNextSeconds = 0
+    @AppStorage("upNextAuto") private var upNextAuto = true
     @State private var connecting: String?
 
     var body: some View {
@@ -57,6 +59,25 @@ struct SettingsView: View {
                     Text("Playback")
                 } footer: {
                     Text("Shows HDR10 / HLG video in HDR on screens that support it. Applies to the next video you open.")
+                }
+
+                Section {
+                    Toggle("Play next episode automatically", isOn: $upNextAuto)
+                    Picker("Show the card", selection: $upNextSeconds) {
+                        Text("At the credits").tag(0)
+                        Text("10 seconds before the end").tag(10)
+                        Text("20 seconds before the end").tag(20)
+                        Text("30 seconds before the end").tag(30)
+                        Text("45 seconds before the end").tag(45)
+                        Text("1 minute before the end").tag(60)
+                        Text("90 seconds before the end").tag(90)
+                        Text("2 minutes before the end").tag(120)
+                    }
+                    .disabled(!upNextAuto)
+                } header: {
+                    Text("Up next")
+                } footer: {
+                    Text("\"At the credits\" uses Plex's credits marker when the episode has one, otherwise the last 20 seconds. Tap Play now on the card to skip ahead, or Cancel to stay.")
                 }
 
                 Section {

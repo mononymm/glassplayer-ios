@@ -51,6 +51,8 @@ struct PlayerScreen: View {
     /// Where the "Up next" card appears: Plex's credits marker, or the last 20 s.
     @State private var upNextAt: Double?
     @State private var upNextDismissed = false
+    @AppStorage("upNextSeconds") private var upNextSeconds = 0
+    @AppStorage("upNextAuto") private var upNextAuto = true
     @State private var showPlaylist = false
     @State private var scrobbled = false
     @State private var speed: Double = 1
@@ -127,7 +129,7 @@ struct PlayerScreen: View {
         .onChange(of: player.position) { _, _ in updateUpNext() }
         .onChange(of: player.ended) { _, ended in
             guard ended else { return }
-            if let next = nextItem, !upNextDismissed {
+            if let next = nextItem, !upNextDismissed, upNextAuto {
                 // The episode just finished: go straight on.
                 withAnimation(.easeOut(duration: 0.2)) { upNext = nil }
                 play(next)
@@ -646,11 +648,13 @@ struct PlayerScreen: View {
 
     /// Shows the card while the episode wraps up; hides it if you seek back.
     private func updateUpNext() {
-        guard let next = nextItem, !upNextDismissed, player.duration > 30, !player.ended else {
-            if upNext != nil, nextItem == nil || upNextDismissed { withAnimation(.easeOut(duration: 0.2)) { upNext = nil } }
+        guard let next = nextItem, !upNextDismissed, upNextAuto, player.duration > 30, !player.ended else {
+            if upNext != nil { withAnimation(.easeOut(duration: 0.2)) { upNext = nil } }
             return
         }
-        let start = min(upNextAt ?? .infinity, player.duration - 20)
+        let start = upNextSeconds > 0
+            ? player.duration - Double(upNextSeconds)
+            : min(upNextAt ?? .infinity, player.duration - 20)
         let left = player.duration - player.position
         if player.position >= start && left > 0 {
             upNextCount = max(1, Int((left / max(0.1, speed)).rounded(.up)))
@@ -704,7 +708,7 @@ struct PlayerScreen: View {
             .frame(width: 300, alignment: .leading)
             .glassEffect(.regular, in: .rect(cornerRadius: 24))
             .padding(.trailing, 20)
-            .padding(.bottom, 90)
+            .padding(.bottom, 150)
         }
         .frame(maxHeight: .infinity, alignment: .bottom)
     }
