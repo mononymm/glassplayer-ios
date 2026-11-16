@@ -107,6 +107,8 @@ final class MPVPlayer: ObservableObject {
     var hdr: Bool = UserDefaults.standard.object(forKey: "hdr") as? Bool ?? true
 
     // Observed property ids
+    private var interruptObserver: NSObjectProtocol?
+
     private enum Obs: UInt64 {
         case timePos = 1, duration, pause, cache, trackCount, aid, sid, eof, idle, chapters
     }
@@ -124,6 +126,9 @@ final class MPVPlayer: ObservableObject {
         guard mpv == nil else { return }
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)
+        interruptObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
+        ) { [weak self] note in self?.audioInterrupted(note) }
 
         guard let handle = mpv_create() else {
             errorText = "Couldn't start the player."
@@ -183,6 +188,7 @@ final class MPVPlayer: ObservableObject {
     func stop() {
         guard let handle = mpv else { return }
         mpv = nil
+        if let o = interruptObserver { NotificationCenter.default.removeObserver(o); interruptObserver = nil }
         mpv_set_wakeup_callback(handle, nil, nil)
         queue.async {
             mpv_terminate_destroy(handle)
@@ -211,8 +217,29 @@ final class MPVPlayer: ObservableObject {
         command(["loadfile", target, "replace"])
     }
 
-    func togglePause() { setProperty("pause", paused ? "no" : "yes") }
-    func setPaused(_ p: Bool) { setProperty("pause", p ? "yes" : "no") }
+    func togglePause() { setPaused(!paused) }
+    func setPaused(_ p: Bool) {
+        // After an interruption iOS may not say it's over, so take the audio back on resume.
+        if !p { try? AVAudioSession.sharedInstance().setActive(true) }
+        setProperty("pause", p ? "yes" : "no")
+    }
+
+    /// An alarm, timer or call takes the audio, which stalls mpv without pausing it, so the
+    /// play button still said "playing" and the first tap only paused. Pause mpv as well, so
+    /// one tap resumes; when the interruption ends, reconnect mpv's audio output.
+    private func audioInterrupted(_ note: Notification) {
+        guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+        switch type {
+        case .began:
+            setPaused(true)
+        case .ended:
+            try? AVAudioSession.sharedInstance().setActive(true)
+            command(["ao-reload"])
+        @unknown default:
+            break
+        }
+    }
 
     func seek(to seconds: Double) {
         command(["seek", String(format: "%.3f", max(0, seconds)), "absolute+exact"])
