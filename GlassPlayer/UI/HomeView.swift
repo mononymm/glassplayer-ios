@@ -38,7 +38,9 @@ struct HomeView: View {
                     }
                     .padding(.bottom, 12)
                 }
-                .ignoresSafeArea(edges: query.isEmpty ? .top : [])
+                // Only the hero runs under the status bar. Without it (server still loading,
+                // or the Retry card) content starts below the toolbar, where it can be tapped.
+                .ignoresSafeArea(edges: query.isEmpty && !heroItems.isEmpty ? .top : [])
                 .refreshable { await plex.refreshHome() }
 
                 if plex.loading && plex.continueWatching.isEmpty && plex.sections.isEmpty {
