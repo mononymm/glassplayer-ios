@@ -586,6 +586,8 @@ struct PlayerScreen: View {
               player.duration > 0, player.position / player.duration >= watchedAt else { return }
         scrobbled = true
         await plex.api.scrobble(server, ratingKey: item.ratingKey)
+        // The other episodes in this file were watched too.
+        for other in sameFileEpisodes(item) { await plex.api.scrobble(server, ratingKey: other.ratingKey) }
     }
 
     private func finalReport(position: Double, duration: Double, request: PlayRequest) async {
@@ -596,6 +598,7 @@ struct PlayerScreen: View {
         let done = position / duration >= watchedAt
         if done {
             await plex.api.scrobble(server, ratingKey: item.ratingKey)
+            for other in sameFileEpisodes(item) { await plex.api.scrobble(server, ratingKey: other.ratingKey) }
             await plex.api.timeline(server, ratingKey: item.ratingKey, state: "stopped",
                                     timeMs: Int(duration * 1000), durationMs: Int(duration * 1000))
         } else if position >= 10 {
@@ -616,10 +619,26 @@ struct PlayerScreen: View {
 
     // MARK: - up next (auto-play the next episode)
 
+    /// The file being played (a "S01E01-E02" file is listed by Plex as two episodes sharing it).
+    private func currentFile(_ item: PlexItem) -> String? {
+        queue.first(where: { $0.ratingKey == item.ratingKey })?.partKey ?? item.partKey
+    }
+
+    /// Other episodes stored in the same file as [item].
+    private func sameFileEpisodes(_ item: PlexItem) -> [PlexItem] {
+        guard let file = currentFile(item) else { return [] }
+        return queue.filter { $0.ratingKey != item.ratingKey && $0.partKey == file }
+    }
+
     /// The episode after this one: next in the season, or the first of the next season.
+    /// Episodes that live in the same file are skipped, so a grouped file doesn't replay.
     private func nextEpisode() async -> PlexItem? {
         guard let item = request.plexItem, item.isEpisode, let server = request.server else { return nil }
-        if let i = queue.firstIndex(where: { $0.ratingKey == item.ratingKey }), i + 1 < queue.count { return queue[i + 1] }
+        let file = currentFile(item)
+        if let i = queue.firstIndex(where: { $0.ratingKey == item.ratingKey }),
+           let next = queue[(i + 1)...].first(where: { file == nil || $0.partKey != file }) {
+            return next
+        }
         guard let show = item.grandparentRatingKey, let season = item.parentRatingKey else { return nil }
         let seasons = (try? await plex.api.children(server, of: show)) ?? []
         guard let si = seasons.firstIndex(where: { $0.ratingKey == season }), si + 1 < seasons.count else { return nil }
