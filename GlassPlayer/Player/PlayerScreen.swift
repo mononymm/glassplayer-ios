@@ -40,8 +40,6 @@ struct PlayerScreen: View {
     @State private var flash: (side: ScreenSide, text: String)?
     @State private var flashTask: Task<Void, Never>?
     @State private var holdMode: ScreenSide?
-    @State private var rewindTask: Task<Void, Never>?
-    @State private var wasPausedBeforeRewind = false
     @State private var reportTask: Task<Void, Never>?
     @State private var queue: [PlexItem] = []
     @State private var upNext: PlexItem?
@@ -166,8 +164,6 @@ struct PlayerScreen: View {
                     Spacer()
                 }
                 Spacer()
-                centerButtons
-                Spacer()
                 titleOverlay
                     .padding(.horizontal, 6)
                     .padding(.bottom, 10)
@@ -176,6 +172,13 @@ struct PlayerScreen: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 10)
             .foregroundStyle(.white)
+
+            // Dead centre of the screen, not of the space between the top and bottom bars
+            // (the bottom is taller, so that sat too high).
+            centerButtons
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
         }
     }
 
@@ -450,8 +453,7 @@ struct PlayerScreen: View {
     @ViewBuilder private var holdBadge: some View {
         if let holdMode {
             VStack {
-                Label(holdMode == .right ? "2×" : "2× rewind",
-                      systemImage: holdMode == .right ? "forward.fill" : "backward.fill")
+                Label("2×", systemImage: "forward.fill")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 18)
@@ -511,34 +513,16 @@ struct PlayerScreen: View {
         }
     }
 
+    /// Holding anywhere on the screen plays at 2× until you let go (no rewind on the left).
     private func holdBegan(_ side: ScreenSide) {
         withAnimation(.spring(duration: 0.25)) { holdMode = side }
-        if side == .right {
-            player.setProperty("speed", "2")
-        } else {
-            // mpv can't decode backwards smoothly, so rewind in quick steps (about 2× speed).
-            wasPausedBeforeRewind = player.paused
-            player.setPaused(true)
-            rewindTask?.cancel()
-            rewindTask = Task { @MainActor in
-                while !Task.isCancelled {
-                    player.seek(by: -0.5)
-                    try? await Task.sleep(nanoseconds: 250_000_000)
-                }
-            }
-        }
+        player.setProperty("speed", "2")
     }
 
     private func holdEnded() {
-        guard let mode = holdMode else { return }
+        guard holdMode != nil else { return }
         withAnimation(.easeOut(duration: 0.2)) { holdMode = nil }
-        if mode == .right {
-            player.setProperty("speed", String(speed))
-        } else {
-            rewindTask?.cancel()
-            rewindTask = nil
-            player.setPaused(wasPausedBeforeRewind)
-        }
+        player.setProperty("speed", String(speed))
     }
 
     private func setSpeed(_ s: Double) {
