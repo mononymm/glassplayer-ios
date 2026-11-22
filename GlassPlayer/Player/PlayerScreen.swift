@@ -112,6 +112,7 @@ struct PlayerScreen: View {
             Orientation.lock(.landscape)
             UIApplication.shared.isIdleTimerDisabled = true
             player.load(request.url, start: request.start)
+            player.setNowPlaying(title: request.title, subtitle: request.subtitle)
             scheduleHide()
             startReporting()
             Task { await loadQueue(); await prepareUpNext() }
@@ -735,6 +736,7 @@ struct PlayerScreen: View {
             upNext = nil
             nextItem = nil
             player.load(url, start: start)
+            player.setNowPlaying(title: request.title, subtitle: request.subtitle)
             showControls()
             if seasonChanged { await loadQueue() }
             await prepareUpNext()

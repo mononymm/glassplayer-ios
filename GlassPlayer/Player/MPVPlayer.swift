@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import AVFoundation
+import MediaPlayer
 import Libmpv
 
 /// A CAMetalLayer that works around MoltenVK quirks (same as the MPVKit demo).
@@ -109,6 +110,13 @@ final class MPVPlayer: ObservableObject {
     // Observed property ids
     private var interruptObserver: NSObjectProtocol?
 
+    // Now playing: headphone buttons, Lock Screen and Control Center.
+    private var remoteTargets: [(MPRemoteCommand, Any)] = []
+    private var nowPlayingTitle = ""
+    private var nowPlayingSubtitle: String?
+    private var npPosition = 0.0
+    private var npAt = Date.distantPast
+
     private enum Obs: UInt64 {
         case timePos = 1, duration, pause, cache, trackCount, aid, sid, eof, idle, chapters
     }
@@ -129,6 +137,7 @@ final class MPVPlayer: ObservableObject {
         interruptObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
         ) { [weak self] note in self?.audioInterrupted(note) }
+        enableRemoteCommands()
 
         guard let handle = mpv_create() else {
             errorText = "Couldn't start the player."
@@ -189,6 +198,7 @@ final class MPVPlayer: ObservableObject {
         guard let handle = mpv else { return }
         mpv = nil
         if let o = interruptObserver { NotificationCenter.default.removeObserver(o); interruptObserver = nil }
+        disableRemoteCommands()
         mpv_set_wakeup_callback(handle, nil, nil)
         queue.async {
             mpv_terminate_destroy(handle)
@@ -222,6 +232,62 @@ final class MPVPlayer: ObservableObject {
         // After an interruption iOS may not say it's over, so take the audio back on resume.
         if !p { try? AVAudioSession.sharedInstance().setActive(true) }
         setProperty("pause", p ? "yes" : "no")
+    }
+
+    // MARK: - now playing (headphone buttons, Lock Screen, Control Center)
+
+    /// Title and episode line shown on the Lock Screen and in Control Center.
+    func setNowPlaying(title: String, subtitle: String?) {
+        nowPlayingTitle = title
+        nowPlayingSubtitle = subtitle
+        updateNowPlaying()
+    }
+
+    private func enableRemoteCommands() {
+        let c = MPRemoteCommandCenter.shared()
+        func add(_ cmd: MPRemoteCommand, _ handler: @escaping (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus) {
+            cmd.isEnabled = true
+            remoteTargets.append((cmd, cmd.addTarget(handler: handler)))
+        }
+        add(c.playCommand) { [weak self] _ in self?.setPaused(false); return .success }
+        add(c.pauseCommand) { [weak self] _ in self?.setPaused(true); return .success }
+        add(c.togglePlayPauseCommand) { [weak self] _ in self?.togglePause(); return .success }
+        c.skipForwardCommand.preferredIntervals = [30]
+        add(c.skipForwardCommand) { [weak self] _ in self?.seek(by: 30); return .success }
+        c.skipBackwardCommand.preferredIntervals = [10]
+        add(c.skipBackwardCommand) { [weak self] _ in self?.seek(by: -10); return .success }
+        add(c.changePlaybackPositionCommand) { [weak self] e in
+            guard let e = e as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            self?.seek(to: e.positionTime)
+            return .success
+        }
+    }
+
+    private func disableRemoteCommands() {
+        for (cmd, target) in remoteTargets { cmd.removeTarget(target) }
+        remoteTargets = []
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+
+    private func updateNowPlaying() {
+        guard mpv != nil else { return }
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: nowPlayingTitle,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.video.rawValue,
+            MPMediaItemPropertyPlaybackDuration: duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
+            MPNowPlayingInfoPropertyPlaybackRate: paused ? 0.0 : 1.0,
+        ]
+        if let s = nowPlayingSubtitle, !s.isEmpty { info[MPMediaItemPropertyArtist] = s }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        npPosition = position
+        npAt = Date()
+    }
+
+    /// iOS runs the Lock Screen clock on its own; only resend after a jump (seek, chapter).
+    private func nowPlayingTimeChanged() {
+        let expected = npPosition + (paused ? 0 : Date().timeIntervalSince(npAt))
+        if abs(position - expected) > 2 { updateNowPlaying() }
     }
 
     /// An alarm, timer or call takes the audio, which stalls mpv without pausing it, so the
@@ -401,11 +467,11 @@ final class MPVPlayer: ObservableObject {
         }
         switch obs {
         case .timePos:
-            if let v = dbl() { DispatchQueue.main.async { self.position = v } }
+            if let v = dbl() { DispatchQueue.main.async { self.position = v; self.nowPlayingTimeChanged() } }
         case .duration:
-            if let v = dbl() { DispatchQueue.main.async { self.duration = v } }
+            if let v = dbl() { DispatchQueue.main.async { self.duration = v; self.updateNowPlaying() } }
         case .pause:
-            if let v = flag() { DispatchQueue.main.async { self.paused = v } }
+            if let v = flag() { DispatchQueue.main.async { self.paused = v; self.updateNowPlaying() } }
         case .cache:
             if let v = flag() { DispatchQueue.main.async { self.buffering = v } }
         case .eof:
