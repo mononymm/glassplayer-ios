@@ -606,13 +606,13 @@ struct PlayerScreen: View {
 
     /// The file being played (a "S01E01-E02" file is listed by Plex as two episodes sharing it).
     private func currentFile(_ item: PlexItem) -> String? {
-        queue.first(where: { $0.ratingKey == item.ratingKey })?.partKey ?? item.partKey
+        queue.first(where: { $0.ratingKey == item.ratingKey })?.filePath ?? item.filePath
     }
 
     /// Other episodes stored in the same file as [item].
     private func sameFileEpisodes(_ item: PlexItem) -> [PlexItem] {
         guard let file = currentFile(item) else { return [] }
-        return queue.filter { $0.ratingKey != item.ratingKey && $0.partKey == file }
+        return queue.filter { $0.ratingKey != item.ratingKey && $0.filePath == file }
     }
 
     /// The episode after this one: next in the season, or the first of the next season.
@@ -621,7 +621,7 @@ struct PlayerScreen: View {
         guard let item = request.plexItem, item.isEpisode, let server = request.server else { return nil }
         let file = currentFile(item)
         if let i = queue.firstIndex(where: { $0.ratingKey == item.ratingKey }),
-           let next = queue[(i + 1)...].first(where: { file == nil || $0.partKey != file }) {
+           let next = queue[(i + 1)...].first(where: { file == nil || $0.filePath != file }) {
             return next
         }
         guard let show = item.grandparentRatingKey, let season = item.parentRatingKey else { return nil }

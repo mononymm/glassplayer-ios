@@ -204,6 +204,9 @@ struct PlexItem: Decodable, Identifiable, Hashable {
     }
 
     var partKey: String? { media.first?.parts.first?.key }
+    /// The file on the server. A "S01E01-E02" file is listed as two episodes, each with its own
+    /// part key but the same file path, so compare this, not partKey.
+    var filePath: String? { media.first?.parts.first?.file }
 
     /// Title logo ("clear logo") when Plex has one.
     var logoPath: String? { images.first(where: { $0.type == "clearLogo" })?.url }
